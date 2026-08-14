@@ -19,6 +19,7 @@ import {
   Printer,
   ChevronUp,
   ChevronDown,
+  Copy,
 } from 'lucide-react';
 
 const categories: Category[] = ['Món chính', 'Bánh mì', 'Đồ uống', 'Món thêm', 'Thực phẩm'];
@@ -31,6 +32,7 @@ export default function POS() {
   const [checkoutOrder, setCheckoutOrder] = useState<Order | null>(null);
   const [shouldPrint, setShouldPrint] = useState(false);
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
+  const [priceOptionItem, setPriceOptionItem] = useState<(typeof menuItems)[number] | null>(null);
 
   const {
     cart,
@@ -67,6 +69,32 @@ export default function POS() {
 
   const totalAmount = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const activeOrdersList = orders.filter((o) => o.paymentStatus === 'Chưa thanh toán');
+
+  const handleAddMenuItem = (item: (typeof menuItems)[number]) => {
+    if (item.priceOptions && item.priceOptions.length > 0) {
+      setPriceOptionItem(item);
+      return;
+    }
+
+    addToCart(item);
+    setRightTab('cart');
+    setMobileSheetOpen(true);
+  };
+
+  const handleSelectPrice = (price: number) => {
+    if (!priceOptionItem) return;
+
+    const selectedPriceItem = {
+      ...priceOptionItem,
+      id: `${priceOptionItem.id}-price-${price}`,
+      price,
+    };
+
+    addToCart(selectedPriceItem);
+    setPriceOptionItem(null);
+    setRightTab('cart');
+    setMobileSheetOpen(true);
+  };
 
   const handleSendToKitchen = async () => {
     if (cart.length === 0) return;
@@ -105,28 +133,27 @@ export default function POS() {
             .map((item) => `${item.quantity} món ${item.name}${item.note ? `. Ghi chú ${item.note}` : ''}.`)
             .join(' ')}`;
 
-    await Promise.all([
-      submitOrder(),
-      emitAppEvent(
-        'order_new',
-        ({
-          screen: 'pos',
-          eventAction: 'order',
-          orderId: `TEMP-${Date.now()}`,
-          orderLabel:
-            orderType === 'Giao hàng'
-              ? `${deliveryProvider || 'Giao hàng'}${orderCode ? ` - ${orderCode}` : ''}`
-              : selectedTable || orderType,
-          orderType,
-          tableId: selectedTable || null,
-          deliveryProvider: deliveryProvider || null,
-          orderCode: orderCode || null,
-          items: cartSnapshot,
-          speechText,
-        } as any),
-        'pos'
-      ),
-    ]);
+   await Promise.all([
+  submitOrder(),
+  emitAppEvent(
+    'order_new',
+    {
+      screen: 'order',
+      orderId: `TEMP-${Date.now()}`,
+      orderLabel:
+        orderType === 'Giao hàng'
+          ? `${deliveryProvider || 'Giao hàng'}${orderCode ? ` - ${orderCode}` : ''}`
+          : selectedTable || orderType,
+      orderType,
+      tableId: selectedTable || null,
+      deliveryProvider: deliveryProvider || null,
+      orderCode: orderCode || null,
+      items: cartSnapshot,
+      speechText,
+    },
+    'pos'
+  ),
+]);
 
     setRightTab('activeOrders');
   };
@@ -347,9 +374,8 @@ export default function POS() {
 
     await emitAppEvent(
       'payment_completed',
-      ({
-        screen: 'pos',
-        eventAction: 'checkout',
+      {
+        screen: 'checkout',
         orderId: checkoutOrder.id,
         orderLabel:
           checkoutOrder.type === 'Giao hàng'
@@ -362,7 +388,7 @@ export default function POS() {
         amount: checkoutOrder.totalPrice,
         paymentMethod: method,
         speechText,
-      } as any),
+      },
       'pos'
     );
 
@@ -389,9 +415,7 @@ export default function POS() {
 
     await emitAppEvent(
       'delivery_completed',
-      ({
-        screen: 'pos',
-        eventAction: 'delivery',
+      {
         orderId: order.id,
         orderLabel: `${order.deliveryProvider || 'Giao hàng'}${order.orderCode ? ` - ${order.orderCode}` : ''}`,
         orderType: order.type,
@@ -400,8 +424,8 @@ export default function POS() {
         orderCode: order.orderCode,
         paymentMethod: 'Đối tác giao hàng',
         speechText:
-          'Giao đơn thành công . Quán em xin cảm ơn đội ngũ xíp bơ đã giao hàng tận tình và nhanh chóng ạ.',
-      } as any),
+          'Đã giao đơn hàng thành công. Cảm ơn quý khách. Chúc quý khách bình an.',
+      },
       'pos'
     );
 
@@ -473,10 +497,7 @@ export default function POS() {
               {filteredItems.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => {
-                    addToCart(item);
-                    setRightTab('cart');
-                  }}
+                  onClick={() => handleAddMenuItem(item)}
                   className="text-left bg-white rounded-2xl p-3 sm:p-4 border border-gray-100 shadow-sm hover:shadow-md hover:border-lime-300 hover:bg-lime-50 transition-all group flex flex-col justify-between min-h-[112px] sm:min-h-[124px]"
                 >
                   <div>
@@ -1042,6 +1063,52 @@ export default function POS() {
         </div>
               </div>
 
+      {priceOptionItem && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="p-5 border-b border-gray-100 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">{priceOptionItem.name}</h2>
+                <p className="text-sm text-gray-500 mt-1">Chọn nhanh mệnh giá</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPriceOptionItem(null)}
+                className="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 text-xl flex items-center justify-center"
+                aria-label="Đóng"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {priceOptionItem.priceOptions?.map((price) => (
+                  <button
+                    key={price}
+                    type="button"
+                    onClick={() => handleSelectPrice(price)}
+                    className="py-4 px-3 rounded-xl border-2 border-lime-200 bg-lime-50 text-lime-700 hover:bg-lime-600 hover:border-lime-600 hover:text-white font-bold text-base transition-all"
+                  >
+                    {price.toLocaleString('vi-VN')}đ
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="px-5 pb-5">
+              <button
+                type="button"
+                onClick={() => setPriceOptionItem(null)}
+                className="w-full py-3 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 font-medium"
+              >
+                Hủy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {checkoutOrder && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden max-h-[92vh] flex flex-col">
@@ -1153,9 +1220,17 @@ export default function POS() {
                     <p className="text-gray-500 text-sm mb-1">Số tài khoản (SĐT của bạn)</p>
                     <div className="flex items-center gap-2 mb-3">
                       <p className="text-xl font-bold text-gray-800">0971171770</p>
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="#ec4899" className="w-5 h-5 cursor-pointer">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" />
-                      </svg>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard.writeText('0971171770');
+                          alert('Đã sao chép số tài khoản MoMo!');
+                        }}
+                        className="p-1 rounded-md hover:bg-gray-100 transition-colors"
+                        title="Sao chép số tài khoản"
+                      >
+                        <Copy className="w-5 h-5 text-pink-500" />
+                      </button>
                     </div>
                     <p className="text-gray-500 text-sm mb-1">Chủ tài khoản</p>
                     <p className="text-lg font-bold text-gray-800 uppercase">NGUYỄN THỊ VUI</p>
@@ -1166,12 +1241,20 @@ export default function POS() {
                     <div className="bg-[#FFF0F5] p-6 rounded-2xl border border-pink-100 shadow-sm text-center">
                       <div className="mb-6">
                         <p className="text-gray-800 font-bold text-xl uppercase">NGUYỄN THỊ VUI</p>
-                        <p className="text-gray-500 text-sm font-mono flex items-center justify-center gap-2">
-                          *******770
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
-                          </svg>
-                        </p>
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="text-gray-500 text-sm font-mono">*******770</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void navigator.clipboard.writeText('0971171770');
+                              alert('Đã sao chép số tài khoản MoMo!');
+                            }}
+                            className="p-1 rounded-md hover:bg-gray-100 transition-colors"
+                            title="Sao chép số tài khoản"
+                          >
+                            <Copy className="w-4 h-4 text-gray-500" />
+                          </button>
+                        </div>
                       </div>
                       <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                         <div className="flex justify-center items-center gap-3 mb-4">
