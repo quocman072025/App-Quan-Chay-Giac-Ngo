@@ -14,6 +14,7 @@ import POS from './components/POS';
 import Kitchen from './components/Kitchen';
 import Dashboard from './components/Dashboard';
 import History from './components/History';
+import MenuOptions from './components/MenuOptions';
 
 import {
   unlockAppAudio,
@@ -358,6 +359,7 @@ export default function App() {
         {activeTab === 'kitchen' && <Kitchen />}
         {activeTab === 'history' && <History />}
         {activeTab === 'dashboard' && <Dashboard />}
+        {activeTab === 'menu-options' && <MenuOptions />}
       </Layout>
 
       <button

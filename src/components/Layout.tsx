@@ -6,6 +6,7 @@ import {
   ChefHat,
   LogOut,
   History as HistoryIcon,
+  Settings,
   Menu,
   X,
 } from 'lucide-react';
@@ -19,6 +20,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     { id: 'kitchen', label: 'Bếp', icon: ChefHat, roles: ['admin', 'staff', 'kitchen'] },
     { id: 'history', label: 'Lịch sử bán hàng', icon: HistoryIcon, roles: ['admin', 'staff'] },
     { id: 'dashboard', label: 'Báo cáo', icon: LayoutDashboard, roles: ['admin'] },
+    { id: 'menu-options', label: '⚙️ Tùy chọn menu', icon: Settings, roles: ['admin'] },
   ];
 
   const roleNames = {
@@ -27,7 +29,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     kitchen: 'Bếp',
   };
 
-  const handleChangeTab = (tab: 'pos' | 'kitchen' | 'history' | 'dashboard') => {
+  const handleChangeTab = (tab: 'pos' | 'kitchen' | 'history' | 'dashboard' | 'menu-options') => {
     setActiveTab(tab);
     setMobileMenuOpen(false);
   };
@@ -66,7 +68,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             .map((item) => (
               <button
                 key={item.id}
-                onClick={() => handleChangeTab(item.id as 'pos' | 'kitchen' | 'history' | 'dashboard')}
+                onClick={() => handleChangeTab(item.id as 'pos' | 'kitchen' | 'history' | 'dashboard' | 'menu-options')}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${
                   activeTab === item.id
                     ? 'bg-lime-50 text-lime-700'
@@ -131,7 +133,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             .map((item) => (
               <button
                 key={item.id}
-                onClick={() => handleChangeTab(item.id as 'pos' | 'kitchen' | 'history' | 'dashboard')}
+                onClick={() => handleChangeTab(item.id as 'pos' | 'kitchen' | 'history' | 'dashboard' | 'menu-options')}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${
                   activeTab === item.id
                     ? 'bg-lime-50 text-lime-700'
@@ -190,7 +192,9 @@ export default function Layout({ children }: { children: ReactNode }) {
               ? 'Bếp'
               : activeTab === 'history'
               ? 'Lịch sử'
-              : 'Báo cáo'}
+              : activeTab === 'menu-options'
+               ? 'Tùy chọn menu'
+               : 'Báo cáo'}
           </div>
         </header>
 

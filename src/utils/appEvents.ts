@@ -1,5 +1,9 @@
 import { supabase } from '../supabaseClient';
-import type { DeliveryProvider, OrderType, PaymentMethod } from '../store/useStore';
+import type {
+  DeliveryProvider,
+  OrderType,
+  PaymentMethod,
+} from '../store/useStore';
 
 export type AppEventType =
   | 'order_new'
@@ -11,7 +15,11 @@ export type AppEventType =
 export type AppEventSource = 'app' | 'pos' | 'kitchen';
 
 export type AppEventPayload = {
-  screen?: 'app' | 'pos' | 'kitchen';
+  screen?: 'app' | 'pos' | 'kitchen' | 'order' | 'checkout';
+
+  // Dùng để phân biệt thao tác gọi món và thanh toán
+  eventAction?: 'order' | 'checkout';
+
   orderId?: string;
   orderLabel?: string;
   orderType?: OrderType;
@@ -23,6 +31,7 @@ export type AppEventPayload = {
   speechText?: string;
   message?: string;
   createdAt?: string;
+
   items?: Array<{
     cartItemId: string;
     name: string;
@@ -59,9 +68,10 @@ export async function emitAppEvent(
   };
 
   try {
-    // 1) Local: máy hiện tại nghe ngay
+    // 1. Local event
     const current = readAppEvents();
     const next = [...current, event].slice(-200);
+
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
 
     window.dispatchEvent(
@@ -70,20 +80,22 @@ export async function emitAppEvent(
       })
     );
 
-    // 2) Realtime đa máy: ghi vào Supabase app_events
+    // 2. Realtime qua Supabase
     const eventText =
       payload.speechText ||
       payload.message ||
       null;
 
-    const { error } = await supabase.from('app_events').insert([
-      {
-        id: event.id,
-        event_type: type,
-        event_text: eventText,
-        payload,
-      },
-    ]);
+    const { error } = await supabase
+      .from('app_events')
+      .insert([
+        {
+          id: event.id,
+          event_type: type,
+          event_text: eventText,
+          payload,
+        },
+      ]);
 
     if (error) {
       console.error('Ghi app_events lỗi:', error);
@@ -98,7 +110,9 @@ export function readAppEvents(): AppEventRecord[] {
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
+
     if (!raw) return [];
+
     return JSON.parse(raw) as AppEventRecord[];
   } catch {
     return [];
@@ -107,5 +121,6 @@ export function readAppEvents(): AppEventRecord[] {
 
 export function clearAppEvents() {
   if (typeof window === 'undefined') return;
+
   localStorage.removeItem(STORAGE_KEY);
 }

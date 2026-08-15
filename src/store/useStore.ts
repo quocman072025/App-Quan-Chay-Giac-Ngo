@@ -106,8 +106,55 @@ const makeCartItemId = () => Math.random().toString(36).substring(2, 10);
 
 const safeDate = (value?: string | Date | null) => {
   if (!value) return null;
+
   const d = new Date(value);
+
   return isNaN(d.getTime()) ? null : d;
+};
+
+/**
+ * ============================================================
+ * HÀM TÍNH ĐƠN GIÁ THỰC TẾ
+ * ============================================================
+ *
+ * Gỏi cuốn:
+ * - 1 -> 3 cuốn: 6.000đ/cuốn
+ * - Từ 4 cuốn trở lên: 5.000đ/cuốn
+ *
+ * Các món khác:
+ * - Giữ nguyên giá trong menu.
+ */
+export const getActualUnitPrice = (
+  item: Pick<MenuItem, 'name' | 'price'>,
+  quantity: number
+): number => {
+  if (item.name === 'Gỏi cuốn' && quantity >= 4) {
+    return 5000;
+  }
+
+  return item.price;
+};
+
+/**
+ * Tính thành tiền thực tế của một món.
+ */
+export const getActualLineTotal = (
+  item: Pick<MenuItem, 'name' | 'price'>,
+  quantity: number
+): number => {
+  const unitPrice = getActualUnitPrice(item, quantity);
+
+  return unitPrice * quantity;
+};
+
+/**
+ * Tính tổng tiền giỏ hàng.
+ */
+export const calculateCartTotal = (cart: CartItem[]): number => {
+  return cart.reduce(
+    (sum, item) => sum + getActualLineTotal(item, item.quantity),
+    0
+  );
 };
 
 export const useStore = create<AppState>((set, get) => ({
@@ -140,15 +187,25 @@ export const useStore = create<AppState>((set, get) => ({
 
   setOrders: (orders) => set({ orders }),
 
+  /**
+   * ============================================================
+   * THÊM MÓN VÀO GIỎ
+   * ============================================================
+   */
   addToCart: (item) =>
     set((state) => {
-      const existingItem = state.cart.find((c) => c.id === item.id && c.note === '');
+      const existingItem = state.cart.find(
+        (c) => c.id === item.id && c.note === ''
+      );
 
       if (existingItem) {
         return {
           cart: state.cart.map((c) =>
             c.cartItemId === existingItem.cartItemId
-              ? { ...c, quantity: c.quantity + 1 }
+              ? {
+                  ...c,
+                  quantity: c.quantity + 1,
+                }
               : c
           ),
         };
@@ -167,28 +224,58 @@ export const useStore = create<AppState>((set, get) => ({
       };
     }),
 
+  /**
+   * ============================================================
+   * CẬP NHẬT SỐ LƯỢNG
+   * ============================================================
+   */
   updateCartItemQuantity: (cartItemId, quantity) =>
     set((state) => ({
       cart:
         quantity === 0
           ? state.cart.filter((c) => c.cartItemId !== cartItemId)
           : state.cart.map((c) =>
-              c.cartItemId === cartItemId ? { ...c, quantity } : c
+              c.cartItemId === cartItemId
+                ? {
+                    ...c,
+                    quantity,
+                  }
+                : c
             ),
     })),
 
+  /**
+   * ============================================================
+   * CẬP NHẬT GHI CHÚ
+   * ============================================================
+   */
   updateCartItemNote: (cartItemId, note) =>
     set((state) => ({
       cart: state.cart.map((c) =>
-        c.cartItemId === cartItemId ? { ...c, note } : c
+        c.cartItemId === cartItemId
+          ? {
+              ...c,
+              note,
+            }
+          : c
       ),
     })),
 
+  /**
+   * ============================================================
+   * XÓA MÓN
+   * ============================================================
+   */
   removeFromCart: (cartItemId) =>
     set((state) => ({
       cart: state.cart.filter((c) => c.cartItemId !== cartItemId),
     })),
 
+  /**
+   * ============================================================
+   * XÓA TOÀN BỘ GIỎ HÀNG
+   * ============================================================
+   */
   clearCart: () =>
     set({
       cart: [],
@@ -197,6 +284,11 @@ export const useStore = create<AppState>((set, get) => ({
       orderCode: '',
     }),
 
+  /**
+   * ============================================================
+   * GỬI ĐƠN HÀNG
+   * ============================================================
+   */
   submitOrder: async () => {
     const state = get();
 
@@ -217,63 +309,146 @@ export const useStore = create<AppState>((set, get) => ({
 
     const now = new Date();
 
+    /**
+     * Tính tổng tiền bằng giá thực tế.
+     */
+    const totalPrice = calculateCartTotal(state.cart);
+
+    /**
+     * Tạo OrderItem.
+     *
+     * Lưu ý:
+     * Với Gỏi cuốn >= 4, chúng ta cập nhật price thành 5.000
+     * ngay trong OrderItem để toàn bộ hệ thống phía sau
+     * nhìn thấy đúng đơn giá.
+     */
+    const orderItems: OrderItem[] = state.cart.map((item) => {
+      const actualUnitPrice = getActualUnitPrice(item, item.quantity);
+
+      return {
+        ...item,
+        price: actualUnitPrice,
+        status: 'Chờ chế biến' as ItemStatus,
+      };
+    });
+
     const newOrder: Order = {
       id: `ORD-${Math.floor(Math.random() * 10000)
         .toString()
         .padStart(4, '0')}`,
+
       type: state.orderType,
+
       tableId: state.selectedTable || undefined,
+
       deliveryProvider:
         state.orderType === 'Giao hàng'
           ? state.deliveryProvider || undefined
           : undefined,
-      orderCode: state.orderType === 'Giao hàng' ? state.orderCode : undefined,
-      items: state.cart.map((item) => ({
-        ...item,
-        status: 'Chờ chế biến' as ItemStatus,
-      })),
-      totalPrice: state.cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
+
+      orderCode:
+        state.orderType === 'Giao hàng'
+          ? state.orderCode
+          : undefined,
+
+      items: orderItems,
+
+      totalPrice,
+
       paymentStatus: 'Chưa thanh toán',
+
       timestamp: now,
-      staffName: state.userRole === 'admin' ? 'Quản lý' : 'Nhân viên',
+
+      staffName:
+        state.userRole === 'admin'
+          ? 'Quản lý'
+          : 'Nhân viên',
+
       isDeleted: false,
     };
 
+    /**
+     * ============================================================
+     * LƯU INVOICE
+     * ============================================================
+     */
     const invoiceId = crypto.randomUUID();
 
-    const { error: invoiceError } = await supabase.from('invoices').insert([
-      {
-        id: invoiceId,
-        order_code: newOrder.id,
-        customer: newOrder.staffName,
-        order_type: newOrder.type,
-        table_id: newOrder.tableId ?? null,
-        delivery_provider: newOrder.deliveryProvider ?? null,
-        delivery_code: newOrder.orderCode ?? null,
-        total: newOrder.totalPrice,
-        status: newOrder.paymentStatus,
-        payment_method: null,
-        paid_at: null,
-        is_deleted: false,
-      },
-    ]);
+    const { error: invoiceError } = await supabase
+      .from('invoices')
+      .insert([
+        {
+          id: invoiceId,
+
+          order_code: newOrder.id,
+
+          customer: newOrder.staffName,
+
+          order_type: newOrder.type,
+
+          table_id: newOrder.tableId ?? null,
+
+          delivery_provider:
+            newOrder.deliveryProvider ?? null,
+
+          delivery_code:
+            newOrder.orderCode ?? null,
+
+          total: newOrder.totalPrice,
+
+          status: newOrder.paymentStatus,
+
+          payment_method: null,
+
+          paid_at: null,
+
+          is_deleted: false,
+        },
+      ]);
 
     if (invoiceError) {
       console.error('Lỗi lưu hóa đơn:', invoiceError);
+
       alert(invoiceError.message);
+
       return;
     }
 
-    const itemsPayload = newOrder.items.map((item) => ({
-      id: crypto.randomUUID(),
-      invoice_id: invoiceId,
-      item_name: item.name,
-      unit_price: item.price,
-      quantity: item.quantity,
-      note: item.note || '',
-      line_total: item.price * item.quantity,
-      status: item.status,
-    }));
+    /**
+     * ============================================================
+     * LƯU CHI TIẾT MÓN
+     * ============================================================
+     *
+     * Quan trọng:
+     * unit_price và line_total đều dùng giá thực tế.
+     */
+    const itemsPayload = newOrder.items.map((item) => {
+      const actualUnitPrice = getActualUnitPrice(
+        item,
+        item.quantity
+      );
+
+      const actualLineTotal =
+        actualUnitPrice * item.quantity;
+
+      return {
+        id: crypto.randomUUID(),
+
+        invoice_id: invoiceId,
+
+        item_name: item.name,
+
+        unit_price: actualUnitPrice,
+
+        quantity: item.quantity,
+
+        note: item.note || '',
+
+        line_total: actualLineTotal,
+
+        status: item.status,
+      };
+    });
 
     const { error: itemsError } = await supabase
       .from('invoice_items')
@@ -281,10 +456,15 @@ export const useStore = create<AppState>((set, get) => ({
 
     if (itemsError) {
       console.error('Lỗi lưu món:', itemsError);
+
       alert(itemsError.message);
+
       return;
     }
 
+    /**
+     * Xóa giỏ sau khi lưu thành công.
+     */
     set({
       cart: [],
       selectedTable: null,
@@ -295,189 +475,437 @@ export const useStore = create<AppState>((set, get) => ({
     await get().fetchInvoices();
   },
 
+  /**
+   * ============================================================
+   * LẤY HÓA ĐƠN
+   * ============================================================
+   */
   fetchInvoices: async () => {
-    const { data: invoicesData, error: invoicesError } = await supabase
+    const {
+      data: invoicesData,
+      error: invoicesError,
+    } = await supabase
       .from('invoices')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_at', {
+        ascending: false,
+      });
 
     if (invoicesError) {
-      console.error('Lỗi lấy hóa đơn:', invoicesError);
+      console.error(
+        'Lỗi lấy hóa đơn:',
+        invoicesError
+      );
+
       alert(invoicesError.message);
+
       return;
     }
 
-    const { data: itemsData, error: itemsError } = await supabase
+    const {
+      data: itemsData,
+      error: itemsError,
+    } = await supabase
       .from('invoice_items')
       .select('*');
 
     if (itemsError) {
-      console.error('Lỗi lấy chi tiết hóa đơn:', itemsError);
+      console.error(
+        'Lỗi lấy chi tiết hóa đơn:',
+        itemsError
+      );
+
       alert(itemsError.message);
+
       return;
     }
 
-    const invoiceRows = (invoicesData || []) as InvoiceRow[];
-    const invoiceItemRows = (itemsData || []) as InvoiceItemRow[];
+    const invoiceRows =
+      (invoicesData || []) as InvoiceRow[];
 
-    const groupedMap = new Map<string, InvoiceRow[]>();
+    const invoiceItemRows =
+      (itemsData || []) as InvoiceItemRow[];
+
+    const groupedMap =
+      new Map<string, InvoiceRow[]>();
 
     invoiceRows.forEach((invoice) => {
-      const key = invoice.order_code || invoice.id;
+      const key =
+        invoice.order_code || invoice.id;
+
       if (!groupedMap.has(key)) {
         groupedMap.set(key, []);
       }
-      groupedMap.get(key)!.push(invoice);
+
+      groupedMap
+        .get(key)!
+        .push(invoice);
     });
 
-    const mappedOrders: Order[] = Array.from(groupedMap.entries()).map(
-      ([groupCode, groupInvoices]) => {
-        const sortedInvoices = [...groupInvoices].sort((a, b) => {
-          const aTime = safeDate(a.created_at)?.getTime() || 0;
-          const bTime = safeDate(b.created_at)?.getTime() || 0;
-          return aTime - bTime;
-        });
+    const mappedOrders: Order[] =
+      Array.from(
+        groupedMap.entries()
+      ).map(
+        ([groupCode, groupInvoices]) => {
+          const sortedInvoices =
+            [...groupInvoices].sort(
+              (a, b) => {
+                const aTime =
+                  safeDate(
+                    a.created_at
+                  )?.getTime() || 0;
 
-        const firstInvoice = sortedInvoices[0];
+                const bTime =
+                  safeDate(
+                    b.created_at
+                  )?.getTime() || 0;
 
-        const allItems: OrderItem[] = sortedInvoices.flatMap((invoice) =>
-          invoiceItemRows
-            .filter((item) => item.invoice_id === invoice.id)
-            .map((item) => ({
-              id: item.id,
-              cartItemId: item.id,
-              name: item.item_name || '',
-              price: Number(item.unit_price || 0),
-              quantity: Number(item.quantity || 0),
-              note: item.note || '',
-              unit: 'phần',
-              category: 'Món chính',
-              image: '',
-              status: (item.status as ItemStatus) || 'Chờ chế biến',
-            }))
-        );
+                return aTime - bTime;
+              }
+            );
 
-        const latestDisplayDate = sortedInvoices.reduce((latest, invoice) => {
-          const sourceTime =
-            invoice.status === 'Đã thanh toán'
-              ? invoice.paid_at || invoice.created_at
-              : invoice.created_at;
+          const firstInvoice =
+            sortedInvoices[0];
 
-          const current = safeDate(sourceTime) || new Date(0);
-          return current > latest ? current : latest;
-        }, new Date(0));
+          const allItems: OrderItem[] =
+            sortedInvoices.flatMap(
+              (invoice) =>
+                invoiceItemRows
+                  .filter(
+                    (item) =>
+                      item.invoice_id ===
+                      invoice.id
+                  )
+                  .map((item) => ({
+                    id: item.id,
 
-        const latestPaidAt = sortedInvoices.reduce((latest, invoice) => {
-          const current = safeDate(invoice.paid_at) || new Date(0);
-          return current > latest ? current : latest;
-        }, new Date(0));
+                    cartItemId: item.id,
 
-        const mergedTotal = sortedInvoices.reduce(
-          (sum, invoice) => sum + Number(invoice.total || 0),
-          0
-        );
+                    name:
+                      item.item_name || '',
 
-        const firstCreatedAt = safeDate(firstInvoice.created_at)
-          ? firstInvoice.created_at
-          : null;
+                    price:
+                      Number(
+                        item.unit_price || 0
+                      ),
 
-        return {
-          id: groupCode,
-          type: (firstInvoice.order_type as OrderType) || 'Mang về',
-          tableId: firstInvoice.table_id || undefined,
-          deliveryProvider:
-            (firstInvoice.delivery_provider as DeliveryProvider) || undefined,
-          orderCode: firstInvoice.delivery_code || undefined,
-          items: allItems,
-          totalPrice: mergedTotal,
-          paymentStatus:
-            firstInvoice.status === 'Đã thanh toán' ? 'Đã thanh toán' : 'Chưa thanh toán',
-          paymentMethod:
-            (firstInvoice.payment_method as PaymentMethod) || undefined,
-          timestamp: latestDisplayDate.getTime() > 0 ? latestDisplayDate : new Date(),
-          staffName: firstInvoice.customer || 'Nhân viên',
-          isDeleted: sortedInvoices.every((invoice) => !!invoice.is_deleted),
-          metadata: {
-            invoiceIds: sortedInvoices.map((invoice) => invoice.id),
-            orderCreatedAt: firstCreatedAt,
-            paidAt: latestPaidAt.getTime() > 0 ? latestPaidAt.toISOString() : null,
-          },
-        };
-      }
-    );
+                    quantity:
+                      Number(
+                        item.quantity || 0
+                      ),
 
-    set({ orders: mappedOrders });
+                    note:
+                      item.note || '',
+
+                    unit: 'phần',
+
+                    category:
+                      'Món chính',
+
+                    image: '',
+
+                    status:
+                      (item.status as ItemStatus) ||
+                      'Chờ chế biến',
+                  }))
+            );
+
+          const latestDisplayDate =
+            sortedInvoices.reduce(
+              (latest, invoice) => {
+                const sourceTime =
+                  invoice.status ===
+                  'Đã thanh toán'
+                    ? invoice.paid_at ||
+                      invoice.created_at
+                    : invoice.created_at;
+
+                const current =
+                  safeDate(sourceTime) ||
+                  new Date(0);
+
+                return current > latest
+                  ? current
+                  : latest;
+              },
+              new Date(0)
+            );
+
+          const latestPaidAt =
+            sortedInvoices.reduce(
+              (latest, invoice) => {
+                const current =
+                  safeDate(
+                    invoice.paid_at
+                  ) || new Date(0);
+
+                return current > latest
+                  ? current
+                  : latest;
+              },
+              new Date(0)
+            );
+
+          /**
+           * Tổng tiền lấy từ invoice.
+           *
+           * Đây là tổng tiền đã được lưu chính xác
+           * tại thời điểm tạo đơn.
+           */
+          const mergedTotal =
+            sortedInvoices.reduce(
+              (sum, invoice) =>
+                sum +
+                Number(
+                  invoice.total || 0
+                ),
+              0
+            );
+
+          const firstCreatedAt =
+            safeDate(
+              firstInvoice.created_at
+            )
+              ? firstInvoice.created_at
+              : null;
+
+          return {
+            id: groupCode,
+
+            type:
+              (firstInvoice.order_type as OrderType) ||
+              'Mang về',
+
+            tableId:
+              firstInvoice.table_id ||
+              undefined,
+
+            deliveryProvider:
+              (firstInvoice.delivery_provider as DeliveryProvider) ||
+              undefined,
+
+            orderCode:
+              firstInvoice.delivery_code ||
+              undefined,
+
+            items: allItems,
+
+            totalPrice:
+              mergedTotal,
+
+            paymentStatus:
+              firstInvoice.status ===
+              'Đã thanh toán'
+                ? 'Đã thanh toán'
+                : 'Chưa thanh toán',
+
+            paymentMethod:
+              (firstInvoice.payment_method as PaymentMethod) ||
+              undefined,
+
+            timestamp:
+              latestDisplayDate.getTime() >
+              0
+                ? latestDisplayDate
+                : new Date(),
+
+            staffName:
+              firstInvoice.customer ||
+              'Nhân viên',
+
+            isDeleted:
+              sortedInvoices.every(
+                (invoice) =>
+                  !!invoice.is_deleted
+              ),
+
+            metadata: {
+              invoiceIds:
+                sortedInvoices.map(
+                  (invoice) =>
+                    invoice.id
+                ),
+
+              orderCreatedAt:
+                firstCreatedAt,
+
+              paidAt:
+                latestPaidAt.getTime() >
+                0
+                  ? latestPaidAt.toISOString()
+                  : null,
+            },
+          };
+        }
+      );
+
+    set({
+      orders: mappedOrders,
+    });
   },
 
-  updateOrderItemStatus: async (orderId, cartItemId, status) => {
-    const { error } = await supabase
-      .from('invoice_items')
-      .update({ status })
-      .eq('id', cartItemId);
+  /**
+   * ============================================================
+   * CẬP NHẬT TRẠNG THÁI MÓN
+   * ============================================================
+   */
+  updateOrderItemStatus: async (
+    orderId,
+    cartItemId,
+    status
+  ) => {
+    const { error } =
+      await supabase
+        .from('invoice_items')
+        .update({
+          status,
+        })
+        .eq('id', cartItemId);
 
     if (error) {
-      console.error('Lỗi cập nhật trạng thái món:', error);
+      console.error(
+        'Lỗi cập nhật trạng thái món:',
+        error
+      );
+
       alert(error.message);
+
       return;
     }
 
     set((state) => ({
-      orders: state.orders.map((order) =>
-        order.id === orderId
-          ? {
-              ...order,
-              items: order.items.map((item) =>
-                item.cartItemId === cartItemId ? { ...item, status } : item
-              ),
-            }
-          : order
+      orders: state.orders.map(
+        (order) =>
+          order.id === orderId
+            ? {
+                ...order,
+
+                items:
+                  order.items.map(
+                    (item) =>
+                      item.cartItemId ===
+                      cartItemId
+                        ? {
+                            ...item,
+                            status,
+                          }
+                        : item
+                  ),
+              }
+            : order
       ),
     }));
   },
 
-  checkoutOrder: async (orderIds, method) => {
+  /**
+   * ============================================================
+   * THANH TOÁN ĐƠN
+   * ============================================================
+   */
+  checkoutOrder: async (
+    orderIds,
+    method
+  ) => {
     const state = get();
-    const ids = Array.isArray(orderIds) ? orderIds : [orderIds];
-    const paidAt = new Date().toISOString();
 
-    const isMerge = ids.length > 1;
+    const ids = Array.isArray(orderIds)
+      ? orderIds
+      : [orderIds];
+
+    const paidAt =
+      new Date().toISOString();
+
+    const isMerge =
+      ids.length > 1;
+
     const mergedOrderCode = isMerge
-      ? ids.map((id) => id.replace('ORD-', '')).join('+')
+      ? ids
+          .map((id) =>
+            id.replace('ORD-', '')
+          )
+          .join('+')
       : ids[0];
 
     for (const id of ids) {
-      const { error } = await supabase
-        .from('invoices')
-        .update({
-          status: 'Đã thanh toán',
-          payment_method: method,
-          order_code: isMerge ? mergedOrderCode : id,
-          paid_at: paidAt,
-        })
-        .eq('order_code', id);
+      const { error } =
+        await supabase
+          .from('invoices')
+          .update({
+            status:
+              'Đã thanh toán',
+
+            payment_method:
+              method,
+
+            order_code:
+              isMerge
+                ? mergedOrderCode
+                : id,
+
+            paid_at:
+              paidAt,
+          })
+          .eq(
+            'order_code',
+            id
+          );
 
       if (error) {
-        console.error('Lỗi cập nhật thanh toán:', error);
+        console.error(
+          'Lỗi cập nhật thanh toán:',
+          error
+        );
+
         alert(error.message);
+
         return;
       }
     }
 
     if (isMerge) {
-      const ordersToMerge = state.orders.filter((o) => ids.includes(o.id));
-      const firstOrder = ordersToMerge[0];
+      const ordersToMerge =
+        state.orders.filter(
+          (o) =>
+            ids.includes(o.id)
+        );
+
+      const firstOrder =
+        ordersToMerge[0];
 
       const mergedOrder: Order = {
         ...firstOrder,
-        id: mergedOrderCode,
-        items: ordersToMerge.flatMap((o) => o.items),
-        totalPrice: ordersToMerge.reduce((sum, o) => sum + o.totalPrice, 0),
-        paymentStatus: 'Đã thanh toán',
-        paymentMethod: method,
-        timestamp: new Date(paidAt),
+
+        id:
+          mergedOrderCode,
+
+        items:
+          ordersToMerge.flatMap(
+            (o) => o.items
+          ),
+
+        totalPrice:
+          ordersToMerge.reduce(
+            (sum, o) =>
+              sum + o.totalPrice,
+            0
+          ),
+
+        paymentStatus:
+          'Đã thanh toán',
+
+        paymentMethod:
+          method,
+
+        timestamp:
+          new Date(paidAt),
+
         metadata: {
-          ...(firstOrder?.metadata || {}),
-          originalIds: ids,
+          ...(firstOrder?.metadata ||
+            {}),
+
+          originalIds:
+            ids,
+
           paidAt,
         },
       };
@@ -485,134 +913,309 @@ export const useStore = create<AppState>((set, get) => ({
       set({
         orders: [
           mergedOrder,
-          ...state.orders.filter((o) => !ids.includes(o.id)),
+
+          ...state.orders.filter(
+            (o) =>
+              !ids.includes(o.id)
+          ),
         ],
       });
     } else {
       set({
-        orders: state.orders.map((order) =>
-          ids.includes(order.id)
-            ? {
-                ...order,
-                paymentStatus: 'Đã thanh toán',
-                paymentMethod: method,
-                timestamp: new Date(paidAt),
-                metadata: {
-                  ...(order.metadata || {}),
-                  paidAt,
-                },
-              }
-            : order
-        ),
+        orders:
+          state.orders.map(
+            (order) =>
+              ids.includes(
+                order.id
+              )
+                ? {
+                    ...order,
+
+                    paymentStatus:
+                      'Đã thanh toán',
+
+                    paymentMethod:
+                      method,
+
+                    timestamp:
+                      new Date(
+                        paidAt
+                      ),
+
+                    metadata: {
+                      ...(order.metadata ||
+                        {}),
+
+                      paidAt,
+                    },
+                  }
+                : order
+          ),
       });
     }
 
     await get().fetchInvoices();
   },
 
-  deleteOrder: async (orderId: string) => {
-    const { error } = await supabase
-      .from('invoices')
-      .update({ is_deleted: true })
-      .eq('order_code', orderId);
+  /**
+   * ============================================================
+   * XÓA ĐƠN
+   * ============================================================
+   */
+  deleteOrder: async (
+    orderId: string
+  ) => {
+    const { error } =
+      await supabase
+        .from('invoices')
+        .update({
+          is_deleted: true,
+        })
+        .eq(
+          'order_code',
+          orderId
+        );
 
     if (error) {
-      console.error('Lỗi xóa đơn:', error);
+      console.error(
+        'Lỗi xóa đơn:',
+        error
+      );
+
       alert(error.message);
+
       return;
     }
 
     set((state) => ({
-      orders: state.orders.map((order) =>
-        order.id === orderId ? { ...order, isDeleted: true } : order
-      ),
+      orders:
+        state.orders.map(
+          (order) =>
+            order.id === orderId
+              ? {
+                  ...order,
+                  isDeleted: true,
+                }
+              : order
+        ),
     }));
   },
 
-  restoreOrder: async (orderId: string) => {
-    const { error } = await supabase
-      .from('invoices')
-      .update({ is_deleted: false })
-      .eq('order_code', orderId);
+  /**
+   * ============================================================
+   * KHÔI PHỤC ĐƠN
+   * ============================================================
+   */
+  restoreOrder: async (
+    orderId: string
+  ) => {
+    const { error } =
+      await supabase
+        .from('invoices')
+        .update({
+          is_deleted: false,
+        })
+        .eq(
+          'order_code',
+          orderId
+        );
 
     if (error) {
-      console.error('Lỗi khôi phục đơn:', error);
+      console.error(
+        'Lỗi khôi phục đơn:',
+        error
+      );
+
       alert(error.message);
+
       return;
     }
 
     set((state) => ({
-      orders: state.orders.map((order) =>
-        order.id === orderId ? { ...order, isDeleted: false } : order
-      ),
+      orders:
+        state.orders.map(
+          (order) =>
+            order.id === orderId
+              ? {
+                  ...order,
+                  isDeleted: false,
+                }
+              : order
+        ),
     }));
   },
 
-  editOrderToCart: async (order: Order) => {
-    if (order.paymentStatus === 'Đã thanh toán') {
-      alert('Không thể sửa đơn đã thanh toán');
+  /**
+   * ============================================================
+   * SỬA ĐƠN -> ĐƯA LẠI VÀO GIỎ
+   * ============================================================
+   */
+  editOrderToCart: async (
+    order: Order
+  ) => {
+    if (
+      order.paymentStatus ===
+      'Đã thanh toán'
+    ) {
+      alert(
+        'Không thể sửa đơn đã thanh toán'
+      );
+
       return;
     }
 
-    const restoredCart: CartItem[] = order.items.map((item) => ({
-      id: item.id,
-      cartItemId: makeCartItemId(),
-      name: item.name,
-      price: item.price,
-      quantity: item.quantity,
-      note: item.note || '',
-      unit: item.unit,
-      category: item.category,
-      image: item.image,
-    }));
+    const restoredCart: CartItem[] =
+      order.items.map(
+        (item) => ({
+          id: item.id,
 
-    const invoiceIds: string[] = order.metadata?.invoiceIds || [];
+          cartItemId:
+            makeCartItemId(),
+
+          name:
+            item.name,
+
+          /**
+           * Khi đưa đơn cũ về giỏ,
+           * nếu là Gỏi cuốn thì tính lại
+           * theo số lượng hiện tại.
+           */
+          price:
+            getActualUnitPrice(
+              item,
+              item.quantity
+            ),
+
+          quantity:
+            item.quantity,
+
+          note:
+            item.note || '',
+
+          unit:
+            item.unit,
+
+          category:
+            item.category,
+
+          image:
+            item.image,
+        })
+      );
+
+    const invoiceIds: string[] =
+      order.metadata?.invoiceIds ||
+      [];
 
     if (invoiceIds.length > 0) {
-      const { error: deleteItemsError } = await supabase
+      const {
+        error:
+          deleteItemsError,
+      } = await supabase
         .from('invoice_items')
         .delete()
-        .in('invoice_id', invoiceIds);
+        .in(
+          'invoice_id',
+          invoiceIds
+        );
 
       if (deleteItemsError) {
-        console.error('Lỗi xóa món của đơn đang sửa:', deleteItemsError);
-        alert(deleteItemsError.message);
+        console.error(
+          'Lỗi xóa món của đơn đang sửa:',
+          deleteItemsError
+        );
+
+        alert(
+          deleteItemsError.message
+        );
+
         return;
       }
 
-      const { error: deleteInvoiceError } = await supabase
+      const {
+        error:
+          deleteInvoiceError,
+      } = await supabase
         .from('invoices')
         .delete()
-        .in('id', invoiceIds);
+        .in(
+          'id',
+          invoiceIds
+        );
 
       if (deleteInvoiceError) {
-        console.error('Lỗi xóa đơn đang sửa:', deleteInvoiceError);
-        alert(deleteInvoiceError.message);
+        console.error(
+          'Lỗi xóa đơn đang sửa:',
+          deleteInvoiceError
+        );
+
+        alert(
+          deleteInvoiceError.message
+        );
+
         return;
       }
     } else {
-      const { error: deleteInvoiceFallbackError } = await supabase
+      const {
+        error:
+          deleteInvoiceFallbackError,
+      } = await supabase
         .from('invoices')
         .delete()
-        .eq('order_code', order.id);
+        .eq(
+          'order_code',
+          order.id
+        );
 
-      if (deleteInvoiceFallbackError) {
-        console.error('Lỗi xóa đơn đang sửa:', deleteInvoiceFallbackError);
-        alert(deleteInvoiceFallbackError.message);
+      if (
+        deleteInvoiceFallbackError
+      ) {
+        console.error(
+          'Lỗi xóa đơn đang sửa:',
+          deleteInvoiceFallbackError
+        );
+
+        alert(
+          deleteInvoiceFallbackError.message
+        );
+
         return;
       }
     }
 
     set((state) => ({
-      cart: restoredCart,
-      orderType: order.type,
-      selectedTable: order.type === 'Tại bàn' ? order.tableId || null : null,
-      deliveryProvider: order.type === 'Giao hàng' ? order.deliveryProvider || null : null,
-      orderCode: order.type === 'Giao hàng' ? order.orderCode || '' : '',
-      activeTab: 'pos',
-      orders: state.orders.filter((o) => o.id !== order.id),
+      cart:
+        restoredCart,
+
+      orderType:
+        order.type,
+
+      selectedTable:
+        order.type === 'Tại bàn'
+          ? order.tableId || null
+          : null,
+
+      deliveryProvider:
+        order.type === 'Giao hàng'
+          ? order.deliveryProvider ||
+            null
+          : null,
+
+      orderCode:
+        order.type === 'Giao hàng'
+          ? order.orderCode || ''
+          : '',
+
+      activeTab:
+        'pos',
+
+      orders:
+        state.orders.filter(
+          (o) =>
+            o.id !== order.id
+        ),
     }));
 
     await get().fetchInvoices();
   },
-}));
+}))
