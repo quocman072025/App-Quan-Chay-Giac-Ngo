@@ -9,15 +9,58 @@ import {
   RotateCcw,
   FileText,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 type FilterMode = 'day' | 'month' | 'year';
 type OrderTypeFilter = 'all' | 'Tại bàn' | 'Mang về' | 'Giao hàng';
+type CalendarCell = {
+  date: Date;
+  inCurrentMonth: boolean;
+  hasData: boolean;
+};
+
+const sameLocalDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() &&
+  a.getMonth() === b.getMonth() &&
+  a.getDate() === b.getDate();
+
+const localDateKey = (date: Date) =>
+  `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+
+const startOfCalendarGrid = (month: Date) => {
+  const first = new Date(month.getFullYear(), month.getMonth(), 1);
+  const day = first.getDay();
+  const start = new Date(first);
+  start.setDate(first.getDate() - day);
+  start.setHours(0, 0, 0, 0);
+  return start;
+};
+
+const buildCalendarCells = (month: Date, dataKeys: Set<string>): CalendarCell[] => {
+  const start = startOfCalendarGrid(month);
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return {
+      date,
+      inCurrentMonth: date.getMonth() === month.getMonth(),
+      hasData: dataKeys.has(localDateKey(date)),
+    };
+  });
+};
+
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
 const formatLocalDateInput = (date: Date) =>
   `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+
+const parseLocalDateInput = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day, 0, 0, 0, 0);
+};
 
 const startOfDay = (date: Date) => {
   const d = new Date(date);
@@ -64,6 +107,14 @@ export default function History() {
   const [startDate, setStartDate] = useState(() => formatLocalDateInput(startOfMonth(new Date())));
   const [endDate, setEndDate] = useState(() => formatLocalDateInput(endOfMonth(new Date())));
   const [orderTypeFilter, setOrderTypeFilter] = useState<OrderTypeFilter>('all');
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+
 
   useEffect(() => {
     void fetchInvoices();
@@ -87,12 +138,28 @@ export default function History() {
 
   const sourceOrders = activeTab === 'orders' ? paidOrders : deletedOrders;
 
+  // Các ngày có ít nhất một đơn sẽ được đánh dấu xanh trên lịch.
+  const dataDateKeys = useMemo(() => {
+    const keys = new Set<string>();
+    sourceOrders.forEach((order) => {
+      const date = getPaidDate(order);
+      if (date) keys.add(localDateKey(date));
+    });
+    return keys;
+  }, [sourceOrders]);
+
+  const calendarCells = useMemo(
+    () => buildCalendarCells(calendarMonth, dataDateKeys),
+    [calendarMonth, dataDateKeys]
+  );
+
+
   const filteredByDate = useMemo(() => {
     let start: Date;
     let end: Date;
 
     if (filterMode === 'day') {
-      const picked = new Date(singleDate);
+      const picked = parseLocalDateInput(singleDate);
       start = startOfDay(picked);
       end = endOfDay(picked);
     } else {
@@ -128,10 +195,23 @@ export default function History() {
         (order.tableId || '').toLowerCase().includes(keyword) ||
         (order.orderCode || '').toLowerCase().includes(keyword) ||
         (order.deliveryProvider || '').toLowerCase().includes(keyword) ||
-        orderLabel.toLowerCase().includes(keyword)
+        orderLabel.toLowerCase().includes(keyword) ||
+        order.items.some((item) => (item.name || '').toLowerCase().includes(keyword))
       );
     });
   }, [searchQuery, filteredByDate]);
+
+  const selectCalendarDate = (date: Date) => {
+    setSingleDate(formatLocalDateInput(date));
+    setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+    setCalendarOpen(false);
+  };
+
+  const moveCalendarMonth = (delta: number) => {
+    setCalendarMonth((current) =>
+      new Date(current.getFullYear(), current.getMonth() + delta, 1)
+    );
+  };
 
   const formatDateTime = (dateValue: Date | string | null | undefined) => {
     if (!dateValue) return 'Không có thời gian';
@@ -385,11 +465,14 @@ export default function History() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Tìm mã đơn, bàn, nhân viên..."
+                placeholder="Tìm mã đơn, mã vận đơn, bàn, nhân viên, món ăn..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-lime-500 focus:ring-2 focus:ring-lime-100"
               />
+              <p className="mt-1 text-xs text-gray-400">
+                Tìm theo: mã đơn (ORD-...), mã vận đơn (Grab-705,...), bàn (Bàn 1...), nhân viên (Quản lý,...), món ăn (Phở chay, Cơm chay,...)
+              </p>
             </div>
           </div>
 
@@ -433,14 +516,91 @@ export default function History() {
           </div>
 
           {filterMode === 'day' ? (
-            <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm w-full xl:w-auto">
-              <CalendarDays className="w-4 h-4 text-gray-400 shrink-0" />
-              <input
-                type="date"
-                value={singleDate}
-                onChange={(e) => setSingleDate(e.target.value)}
-                className="text-sm border-none focus:ring-0 p-0 outline-none cursor-pointer w-full bg-transparent"
-              />
+            <div className="relative w-full xl:w-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  const picked = parseLocalDateInput(singleDate);
+                  setCalendarMonth(new Date(picked.getFullYear(), picked.getMonth(), 1));
+                  setCalendarOpen((open) => !open);
+                }}
+                className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2.5 shadow-sm w-full xl:w-80 text-left hover:border-lime-400 transition-colors"
+              >
+                <CalendarDays className="w-4 h-4 text-gray-400 shrink-0" />
+                <span className="text-sm text-gray-700">{parseLocalDateInput(singleDate).toLocaleDateString('vi-VN')}</span>
+              </button>
+
+              {calendarOpen && (
+                <div className="absolute right-0 top-full mt-2 z-50 w-[320px] bg-white border border-gray-200 rounded-2xl shadow-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <button
+                      type="button"
+                      onClick={() => moveCalendarMonth(-1)}
+                      className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                      aria-label="Tháng trước"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <div className="font-semibold text-gray-800">
+                      {calendarMonth.toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' })}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => moveCalendarMonth(1)}
+                      className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                      aria-label="Tháng sau"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-7 mb-2">
+                    {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map((day) => (
+                      <div key={day} className="text-center text-xs font-semibold text-gray-400 py-1">{day}</div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-7 gap-y-1">
+                    {calendarCells.map(({ date, inCurrentMonth, hasData }) => {
+                      const selected = sameLocalDay(date, parseLocalDateInput(singleDate));
+                      const today = sameLocalDay(date, new Date());
+                      return (
+                        <button
+                          type="button"
+                          key={localDateKey(date)}
+                          onClick={() => selectCalendarDate(date)}
+                          className={"relative h-9 flex items-center justify-center rounded-lg text-sm transition-colors " +
+                            (selected
+                              ? 'bg-lime-600 text-white font-semibold'
+                              : today
+                                ? 'ring-1 ring-lime-500 text-lime-700 font-semibold'
+                                : inCurrentMonth
+                                  ? 'text-gray-700 hover:bg-lime-50'
+                                  : 'text-gray-300 hover:bg-gray-50')}
+                        >
+                          {date.getDate()}
+                          {hasData && !selected && (
+                            <span className="absolute bottom-1 w-1.5 h-1.5 rounded-full bg-lime-500" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5 text-gray-500">
+                      <span className="w-2 h-2 rounded-full bg-lime-500" /> Có dữ liệu
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => selectCalendarDate(new Date())}
+                      className="text-lime-700 font-medium hover:underline"
+                    >
+                      Hôm nay
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm w-full xl:w-auto">
@@ -481,10 +641,11 @@ export default function History() {
             </p>
           </div>
         ) : (
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden min-w-[980px]">
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden min-w-[1060px]">
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr className="text-left text-sm text-gray-500">
+                  <th className="px-4 py-4 font-semibold w-16 text-center">STT</th>
                   <th className="px-4 py-4 font-semibold">Mã đơn</th>
                   <th className="px-4 py-4 font-semibold">Thời gian thanh toán</th>
                   <th className="px-4 py-4 font-semibold">Loại / Bàn</th>
@@ -496,11 +657,12 @@ export default function History() {
               </thead>
 
               <tbody>
-                {filteredOrders.map((order) => (
+                {filteredOrders.map((order, index) => (
                   <tr
                     key={`${order.id}-${order.timestamp}`}
                     className="border-b border-gray-100 last:border-b-0"
                   >
+                    <td className="px-4 py-5 text-center text-gray-600 font-medium">{index + 1}</td>
                     <td className="px-4 py-5 font-bold text-gray-800">#{order.id}</td>
 
                     <td className="px-4 py-5 text-gray-700">
@@ -676,4 +838,4 @@ export default function History() {
       )}
     </div>
   );
-}
+};
