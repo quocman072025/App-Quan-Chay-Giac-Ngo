@@ -19,7 +19,6 @@ export interface MenuItem {
 }
 
 export const menuItems: MenuItem[] = [
-
   // =========================================================
   // BÁNH MÌ
   // =========================================================
@@ -86,7 +85,6 @@ export const menuItems: MenuItem[] = [
     category: 'Bánh mì',
     image: 'https://picsum.photos/seed/banhmibicha/200/200',
   },
-
 
   // =========================================================
   // MÓN CHÍNH
@@ -256,7 +254,6 @@ export const menuItems: MenuItem[] = [
     image: 'https://picsum.photos/seed/comthapcam/200/200',
   },
 
-
   // =========================================================
   // MÓN THÊM
   // =========================================================
@@ -323,7 +320,6 @@ export const menuItems: MenuItem[] = [
     category: 'Món thêm',
     image: 'https://picsum.photos/seed/dungcuanuong/200/200',
   },
-
 
   // =========================================================
   // ĐỒ UỐNG
@@ -529,7 +525,6 @@ export const menuItems: MenuItem[] = [
     image: 'https://picsum.photos/seed/nuocep/200/200',
   },
 
-
   // =========================================================
   // THỰC PHẨM
   // =========================================================
@@ -537,10 +532,28 @@ export const menuItems: MenuItem[] = [
   {
     id: '40',
     name: 'Chả lụa nhà làm',
-    unit: '1 kg',
-    price: 160000,
+    unit: '0.5 kg',
+    price: 80000,
     category: 'Thực phẩm',
     image: 'https://picsum.photos/seed/chalua/200/200',
+  },
+
+  {
+    id: '77',
+    name: 'Nước mắm',
+    unit: 'chai',
+    price: 30000,
+    category: 'Thực phẩm',
+    image: 'https://picsum.photos/seed/nuocmam/200/200',
+  },
+
+  {
+    id: '78',
+    name: 'Nước tương',
+    unit: 'chai',
+    price: 10000,
+    category: 'Thực phẩm',
+    image: 'https://picsum.photos/seed/nuoctuong/200/200',
   },
 
   {

@@ -15,11 +15,14 @@ import {
 
 type FilterMode = 'day' | 'month' | 'year';
 type OrderTypeFilter = 'all' | 'Tại bàn' | 'Mang về' | 'Giao hàng';
+
 type CalendarCell = {
   date: Date;
   inCurrentMonth: boolean;
   hasData: boolean;
 };
+
+const pad = (n: number) => String(n).padStart(2, '0');
 
 const sameLocalDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() &&
@@ -32,17 +35,24 @@ const localDateKey = (date: Date) =>
 const startOfCalendarGrid = (month: Date) => {
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
   const day = first.getDay();
+
   const start = new Date(first);
   start.setDate(first.getDate() - day);
   start.setHours(0, 0, 0, 0);
+
   return start;
 };
 
-const buildCalendarCells = (month: Date, dataKeys: Set<string>): CalendarCell[] => {
+const buildCalendarCells = (
+  month: Date,
+  dataKeys: Set<string>
+): CalendarCell[] => {
   const start = startOfCalendarGrid(month);
+
   return Array.from({ length: 42 }, (_, index) => {
     const date = new Date(start);
     date.setDate(start.getDate() + index);
+
     return {
       date,
       inCurrentMonth: date.getMonth() === month.getMonth(),
@@ -51,14 +61,12 @@ const buildCalendarCells = (month: Date, dataKeys: Set<string>): CalendarCell[] 
   });
 };
 
-
-const pad = (n: number) => String(n).padStart(2, '0');
-
 const formatLocalDateInput = (date: Date) =>
   `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 
 const parseLocalDateInput = (value: string) => {
   const [year, month, day] = value.split('-').map(Number);
+
   return new Date(year, month - 1, day, 0, 0, 0, 0);
 };
 
@@ -88,43 +96,95 @@ const endOfYear = (date: Date) =>
 
 const toSafeDate = (value: string | Date | null | undefined) => {
   if (!value) return null;
+
   const d = new Date(value);
+
   return isNaN(d.getTime()) ? null : d;
 };
 
 const getPaidDate = (order: Order) =>
   toSafeDate(order.metadata?.paidAt || order.timestamp);
 
+/**
+ * Kiểm tra xem từ khóa có giống tên món hay không.
+ *
+ * Ví dụ:
+ * "gỏi cuốn" sẽ tìm thấy:
+ * - Gỏi cuốn
+ * - gỏi cuốn đặc biệt
+ * - Gỏi cuốn chay
+ */
+const itemNameMatches = (itemName: string, keyword: string) => {
+  if (!keyword) return false;
+
+  return itemName.toLowerCase().includes(keyword);
+};
+
 export default function History() {
-  const { orders, deleteOrder, restoreOrder, fetchInvoices } = useStore();
+  const {
+    orders,
+    deleteOrder,
+    restoreOrder,
+    fetchInvoices,
+  } = useStore();
 
   const [activeTab, setActiveTab] = useState<'orders' | 'deleted'>('orders');
+
   const [searchQuery, setSearchQuery] = useState('');
+
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
   const [filterMode, setFilterMode] = useState<FilterMode>('day');
-  const [singleDate, setSingleDate] = useState(() => formatLocalDateInput(new Date()));
-  const [startDate, setStartDate] = useState(() => formatLocalDateInput(startOfMonth(new Date())));
-  const [endDate, setEndDate] = useState(() => formatLocalDateInput(endOfMonth(new Date())));
-  const [orderTypeFilter, setOrderTypeFilter] = useState<OrderTypeFilter>('all');
+
+  const [singleDate, setSingleDate] = useState(() =>
+    formatLocalDateInput(new Date())
+  );
+
+  const [startDate, setStartDate] = useState(() =>
+    formatLocalDateInput(startOfMonth(new Date()))
+  );
+
+  const [endDate, setEndDate] = useState(() =>
+    formatLocalDateInput(endOfMonth(new Date()))
+  );
+
+  const [orderTypeFilter, setOrderTypeFilter] =
+    useState<OrderTypeFilter>('all');
+
   const [calendarOpen, setCalendarOpen] = useState(false);
+
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const d = new Date();
+
     d.setDate(1);
     d.setHours(0, 0, 0, 0);
+
     return d;
   });
-
 
   useEffect(() => {
     void fetchInvoices();
   }, [fetchInvoices]);
 
+  /**
+   * ==============================
+   * DANH SÁCH ĐƠN GỐC
+   * ==============================
+   */
+
   const paidOrders = useMemo(
     () =>
       orders
-        .filter((order) => order.paymentStatus === 'Đã thanh toán' && !order.isDeleted)
-        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
+        .filter(
+          (order) =>
+            order.paymentStatus === 'Đã thanh toán' &&
+            !order.isDeleted
+        )
+        .sort(
+          (a, b) =>
+            new Date(b.timestamp).getTime() -
+            new Date(a.timestamp).getTime()
+        ),
     [orders]
   );
 
@@ -132,19 +192,34 @@ export default function History() {
     () =>
       orders
         .filter((order) => !!order.isDeleted)
-        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
+        .sort(
+          (a, b) =>
+            new Date(b.timestamp).getTime() -
+            new Date(a.timestamp).getTime()
+        ),
     [orders]
   );
 
-  const sourceOrders = activeTab === 'orders' ? paidOrders : deletedOrders;
+  const sourceOrders =
+    activeTab === 'orders' ? paidOrders : deletedOrders;
 
-  // Các ngày có ít nhất một đơn sẽ được đánh dấu xanh trên lịch.
+  /**
+   * ==============================
+   * LỊCH
+   * ==============================
+   */
+
   const dataDateKeys = useMemo(() => {
     const keys = new Set<string>();
+
     sourceOrders.forEach((order) => {
       const date = getPaidDate(order);
-      if (date) keys.add(localDateKey(date));
+
+      if (date) {
+        keys.add(localDateKey(date));
+      }
     });
+
     return keys;
   }, [sourceOrders]);
 
@@ -153,6 +228,11 @@ export default function History() {
     [calendarMonth, dataDateKeys]
   );
 
+  /**
+   * ==============================
+   * LỌC NGÀY / THÁNG / NĂM
+   * ==============================
+   */
 
   const filteredByDate = useMemo(() => {
     let start: Date;
@@ -160,64 +240,278 @@ export default function History() {
 
     if (filterMode === 'day') {
       const picked = parseLocalDateInput(singleDate);
+
       start = startOfDay(picked);
       end = endOfDay(picked);
     } else {
-      start = startOfDay(new Date(startDate));
-      end = endOfDay(new Date(endDate));
+      start = startOfDay(parseLocalDateInput(startDate));
+      end = endOfDay(parseLocalDateInput(endDate));
     }
 
     return sourceOrders.filter((order) => {
       const paidDate = getPaidDate(order);
+
       if (!paidDate) return false;
 
       const matchType =
-        orderTypeFilter === 'all' ? true : order.type === orderTypeFilter;
+        orderTypeFilter === 'all'
+          ? true
+          : order.type === orderTypeFilter;
 
-      return paidDate >= start && paidDate <= end && matchType;
+      return (
+        paidDate >= start &&
+        paidDate <= end &&
+        matchType
+      );
     });
-  }, [sourceOrders, filterMode, singleDate, startDate, endDate, orderTypeFilter]);
+  }, [
+    sourceOrders,
+    filterMode,
+    singleDate,
+    startDate,
+    endDate,
+    orderTypeFilter,
+  ]);
+
+  /**
+   * ============================================================
+   * QUAN TRỌNG:
+   *
+   * Khi tìm kiếm món:
+   *
+   * Bill:
+   *
+   * Hủ tiếu
+   * Bánh canh
+   * Gỏi cuốn
+   *
+   * tìm "gỏi cuốn"
+   *
+   * => chỉ giữ lại Gỏi cuốn.
+   *
+   * Đồng thời tính lại totalPrice.
+   *
+   * Dữ liệu orders gốc KHÔNG bị thay đổi.
+   * ============================================================
+   */
 
   const filteredOrders = useMemo(() => {
     const keyword = searchQuery.trim().toLowerCase();
 
-    if (!keyword) return filteredByDate;
+    /**
+     * Không tìm kiếm:
+     * trả nguyên toàn bộ đơn.
+     */
+    if (!keyword) {
+      return filteredByDate;
+    }
 
-    return filteredByDate.filter((order) => {
+    const result: Order[] = [];
+
+    filteredByDate.forEach((order) => {
+      /**
+       * Kiểm tra tìm theo thông tin đơn.
+       */
       const orderLabel =
         order.type === 'Giao hàng'
-          ? `${order.deliveryProvider || ''} ${order.orderCode || ''}`
+          ? `${order.deliveryProvider || ''} ${
+              order.orderCode || ''
+            }`
           : order.tableId || order.type;
 
-      return (
+      const orderInfoMatches =
         order.id.toLowerCase().includes(keyword) ||
         (order.staffName || '').toLowerCase().includes(keyword) ||
         (order.tableId || '').toLowerCase().includes(keyword) ||
         (order.orderCode || '').toLowerCase().includes(keyword) ||
-        (order.deliveryProvider || '').toLowerCase().includes(keyword) ||
-        orderLabel.toLowerCase().includes(keyword) ||
-        order.items.some((item) => (item.name || '').toLowerCase().includes(keyword))
+        (order.deliveryProvider || '')
+          .toLowerCase()
+          .includes(keyword) ||
+        orderLabel.toLowerCase().includes(keyword);
+
+      /**
+       * Tìm các món phù hợp.
+       */
+      const matchingItems = order.items.filter((item) =>
+        itemNameMatches(item.name || '', keyword)
       );
+
+      /**
+       * ========================================================
+       * TRƯỜNG HỢP 1:
+       *
+       * Tìm thấy tên món.
+       *
+       * => Chỉ giữ món đó trong bill.
+       * ========================================================
+       */
+      if (matchingItems.length > 0) {
+        const filteredTotal = matchingItems.reduce(
+          (sum, item) =>
+            sum + Number(item.price) * Number(item.quantity),
+          0
+        );
+
+        const filteredOrder: Order = {
+          ...order,
+          items: matchingItems,
+          totalPrice: filteredTotal,
+        };
+
+        result.push(filteredOrder);
+
+        return;
+      }
+
+      /**
+       * ========================================================
+       * TRƯỜNG HỢP 2:
+       *
+       * Không tìm thấy món nhưng tìm thấy:
+       * - Mã đơn
+       * - Bàn
+       * - Nhân viên
+       * - Mã vận đơn
+       * - Nhà giao hàng
+       *
+       * => Giữ nguyên toàn bộ bill.
+       *
+       * Điều này giúp chức năng tìm mã đơn/bàn vẫn hoạt động
+       * giống trước đây.
+       * ========================================================
+       */
+      if (orderInfoMatches) {
+        result.push(order);
+      }
     });
+
+    return result;
   }, [searchQuery, filteredByDate]);
+
+  /**
+   * ============================================================
+   * THỐNG KÊ KHI ĐANG TÌM MÓN
+   *
+   * Ví dụ:
+   *
+   * Bàn 1: Gỏi cuốn 2 cái = 40.000
+   * Bàn 3: Gỏi cuốn 3 cái = 60.000
+   * Bàn 5: Gỏi cuốn 1 cái = 20.000
+   *
+   * Tổng:
+   * SL = 6
+   * Tiền = 120.000
+   * ============================================================
+   */
+
+  const itemSearchSummary = useMemo(() => {
+    const keyword = searchQuery.trim().toLowerCase();
+
+    if (!keyword) {
+      return {
+        isItemSearch: false,
+        totalQuantity: 0,
+        totalAmount: 0,
+        itemNames: [] as string[],
+      };
+    }
+
+    const itemMap = new Map<
+      string,
+      {
+        name: string;
+        quantity: number;
+        amount: number;
+      }
+    >();
+
+    filteredByDate.forEach((order) => {
+      order.items.forEach((item) => {
+        if (!itemNameMatches(item.name || '', keyword)) {
+          return;
+        }
+
+        const name = item.name || 'Không tên';
+        const key = name.trim().toLowerCase();
+
+        const quantity = Number(item.quantity) || 0;
+        const amount =
+          quantity * (Number(item.price) || 0);
+
+        const existing = itemMap.get(key);
+
+        if (existing) {
+          existing.quantity += quantity;
+          existing.amount += amount;
+        } else {
+          itemMap.set(key, {
+            name,
+            quantity,
+            amount,
+          });
+        }
+      });
+    });
+
+    const values = Array.from(itemMap.values());
+
+    return {
+      isItemSearch: values.length > 0,
+      totalQuantity: values.reduce(
+        (sum, item) => sum + item.quantity,
+        0
+      ),
+      totalAmount: values.reduce(
+        (sum, item) => sum + item.amount,
+        0
+      ),
+      itemNames: values.map((item) => item.name),
+    };
+  }, [searchQuery, filteredByDate]);
+
+  /**
+   * ==============================
+   * CHỌN NGÀY TRÊN LỊCH
+   * ==============================
+   */
 
   const selectCalendarDate = (date: Date) => {
     setSingleDate(formatLocalDateInput(date));
-    setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+
+    setCalendarMonth(
+      new Date(date.getFullYear(), date.getMonth(), 1)
+    );
+
     setCalendarOpen(false);
   };
 
   const moveCalendarMonth = (delta: number) => {
-    setCalendarMonth((current) =>
-      new Date(current.getFullYear(), current.getMonth() + delta, 1)
+    setCalendarMonth(
+      (current) =>
+        new Date(
+          current.getFullYear(),
+          current.getMonth() + delta,
+          1
+        )
     );
   };
 
-  const formatDateTime = (dateValue: Date | string | null | undefined) => {
+  /**
+   * ==============================
+   * FORMAT NGÀY GIỜ
+   * ==============================
+   */
+
+  const formatDateTime = (
+    dateValue: Date | string | null | undefined
+  ) => {
     if (!dateValue) return 'Không có thời gian';
 
     const d = new Date(dateValue);
-    if (isNaN(d.getTime())) return 'Không có thời gian';
+
+    if (isNaN(d.getTime())) {
+      return 'Không có thời gian';
+    }
 
     return d.toLocaleString('vi-VN', {
       hour: '2-digit',
@@ -229,8 +523,15 @@ export default function History() {
     });
   };
 
+  /**
+   * ==============================
+   * LỌC NHANH
+   * ==============================
+   */
+
   const setQuickHistoryRange = (mode: FilterMode) => {
     const now = new Date();
+
     setFilterMode(mode);
 
     if (mode === 'day') {
@@ -239,14 +540,79 @@ export default function History() {
     }
 
     if (mode === 'month') {
-      setStartDate(formatLocalDateInput(startOfMonth(now)));
-      setEndDate(formatLocalDateInput(endOfMonth(now)));
+      setStartDate(
+        formatLocalDateInput(startOfMonth(now))
+      );
+
+      setEndDate(
+        formatLocalDateInput(endOfMonth(now))
+      );
+
       return;
     }
 
-    setStartDate(formatLocalDateInput(startOfYear(now)));
-    setEndDate(formatLocalDateInput(endOfYear(now)));
+    setStartDate(
+      formatLocalDateInput(startOfYear(now))
+    );
+
+    setEndDate(
+      formatLocalDateInput(endOfYear(now))
+    );
   };
+
+  /**
+   * ==============================
+   * NHÃN BILL
+   * ==============================
+   */
+
+  const renderOrderLabel = (order: Order) => {
+    if (order.type === 'Giao hàng') {
+      return `${order.deliveryProvider || 'Giao hàng'}${
+        order.orderCode
+          ? ` - ${order.orderCode}`
+          : ''
+      }`;
+    }
+
+    return order.tableId || order.type;
+  };
+
+  /**
+   * ==============================
+   * MÀU PHƯƠNG THỨC THANH TOÁN
+   * ==============================
+   */
+
+  const getPaymentBadgeClass = (
+    paymentMethod?: string
+  ) => {
+    if (paymentMethod === 'Tiền mặt') {
+      return 'bg-blue-100 text-blue-700';
+    }
+
+    if (paymentMethod === 'Chuyển khoản') {
+      return 'bg-lime-100 text-lime-700';
+    }
+
+    if (paymentMethod === 'Ví Momo') {
+      return 'bg-pink-100 text-pink-700';
+    }
+
+    return 'bg-orange-100 text-orange-700';
+  };
+
+  /**
+   * ==============================
+   * IN HÓA ĐƠN
+   * ==============================
+   *
+   * Nếu đang tìm món:
+   * selectedOrder đã là bill được lọc.
+   *
+   * Vì vậy khi bấm In:
+   * chỉ in món đang tìm.
+   */
 
   const printHistoryOrder = (order: Order) => {
     const paymentMethod = order.paymentMethod;
@@ -259,7 +625,9 @@ export default function History() {
     const orderTitle =
       order.type === 'Giao hàng'
         ? `${order.deliveryProvider || 'Giao hàng'}${
-            order.orderCode ? ` - ${order.orderCode}` : ''
+            order.orderCode
+              ? ` - ${order.orderCode}`
+              : ''
           }`
         : order.tableId || order.type;
 
@@ -267,19 +635,37 @@ export default function History() {
       paymentMethod === 'Chuyển khoản'
         ? `
           <div class="divider"></div>
-          <div class="center" style="font-weight:700; margin-bottom:6px;">THANH TOÁN CHUYỂN KHOẢN</div>
+
+          <div
+            class="center"
+            style="font-weight:700; margin-bottom:6px;"
+          >
+            THANH TOÁN CHUYỂN KHOẢN
+          </div>
+
           <div class="center">
             <img
-              src="https://img.vietqr.io/image/TCB-19033636716010-compact2.png?amount=${order.totalPrice}&addInfo=${encodeURIComponent(order.id)}&accountName=NGUYEN%20THI%20VUI"
+              src="https://img.vietqr.io/image/TCB-19033636716010-compact2.png?amount=${
+                order.totalPrice
+              }&addInfo=${encodeURIComponent(
+                order.id
+              )}&accountName=NGUYEN%20THI%20VUI"
               alt="VietQR"
               style="width:220px; max-width:100%; height:auto;"
             />
           </div>
-          <div class="center" style="margin-top:6px; font-size:12px;">
+
+          <div
+            class="center"
+            style="margin-top:6px; font-size:12px;"
+          >
             <div><strong>Techcombank</strong></div>
             <div>NGUYEN THI VUI</div>
             <div>STK: 19033636716010</div>
-            <div>Số tiền: ${order.totalPrice.toLocaleString('vi-VN')}đ</div>
+            <div>
+              Số tiền:
+              ${order.totalPrice.toLocaleString('vi-VN')}đ
+            </div>
           </div>
         `
         : '';
@@ -289,8 +675,13 @@ export default function History() {
         <head>
           <meta charset="utf-8" />
           <title>Hoa don - ${order.id}</title>
+
           <style>
-            @page { size: 80mm auto; margin: 0; }
+            @page {
+              size: 80mm auto;
+              margin: 0;
+            }
+
             body {
               font-family: Arial, Helvetica, sans-serif;
               margin: 0;
@@ -300,10 +691,28 @@ export default function History() {
               font-size: 12px;
               box-sizing: border-box;
             }
-            .center { text-align: center; }
-            .shop-name { font-size: 20px; font-weight: 800; margin-bottom: 2px; }
-            .shop-sub { font-size: 13px; margin-bottom: 8px; }
-            .bill-title { font-size: 18px; font-weight: 800; margin: 6px 0; }
+
+            .center {
+              text-align: center;
+            }
+
+            .shop-name {
+              font-size: 20px;
+              font-weight: 800;
+              margin-bottom: 2px;
+            }
+
+            .shop-sub {
+              font-size: 13px;
+              margin-bottom: 8px;
+            }
+
+            .bill-title {
+              font-size: 18px;
+              font-weight: 800;
+              margin: 6px 0;
+            }
+
             .paid-badge {
               margin: 6px auto 8px auto;
               width: fit-content;
@@ -312,32 +721,98 @@ export default function History() {
               font-size: 12px;
               font-weight: 800;
             }
-            .divider { border-top: 1px dashed #000; margin: 8px 0; }
-            .row { display: flex; justify-content: space-between; gap: 8px; margin: 2px 0; }
-            .item { margin: 6px 0; }
-            .item-name { font-weight: 700; line-height: 1.35; }
-            .item-note { font-size: 11px; color: #444; margin-top: 2px; font-style: italic; }
-            .total { font-size: 16px; font-weight: 800; }
-            .footer { text-align: center; margin-top: 10px; font-size: 12px; }
+
+            .divider {
+              border-top: 1px dashed #000;
+              margin: 8px 0;
+            }
+
+            .row {
+              display: flex;
+              justify-content: space-between;
+              gap: 8px;
+              margin: 2px 0;
+            }
+
+            .item {
+              margin: 6px 0;
+            }
+
+            .item-name {
+              font-weight: 700;
+              line-height: 1.35;
+            }
+
+            .item-note {
+              font-size: 11px;
+              color: #444;
+              margin-top: 2px;
+              font-style: italic;
+            }
+
+            .total {
+              font-size: 16px;
+              font-weight: 800;
+            }
+
+            .footer {
+              text-align: center;
+              margin-top: 10px;
+              font-size: 12px;
+            }
           </style>
         </head>
+
         <body>
-          <div class="center shop-name">GIÁC NGỘ</div>
-          <div class="center shop-sub">TIỆM CHAY</div>
-          <div class="center bill-title">HÓA ĐƠN</div>
+
+          <div class="center shop-name">
+            GIÁC NGỘ
+          </div>
+
+          <div class="center shop-sub">
+            TIỆM CHAY
+          </div>
+
+          <div class="center bill-title">
+            HÓA ĐƠN
+          </div>
+
           ${paidText}
 
           <div class="divider"></div>
 
-          <div class="row"><span>Mã đơn:</span><span>${order.id}</span></div>
-          <div class="row"><span>Loại/Bàn:</span><span>${orderTitle}</span></div>
-          <div class="row"><span>Nhân viên:</span><span>${order.staffName}</span></div>
-          <div class="row"><span>Thời gian order:</span><span>${formatDateTime(
-            order.metadata?.orderCreatedAt
-          )}</span></div>
+          <div class="row">
+            <span>Mã đơn:</span>
+            <span>${order.id}</span>
+          </div>
+
+          <div class="row">
+            <span>Loại/Bàn:</span>
+            <span>${orderTitle}</span>
+          </div>
+
+          <div class="row">
+            <span>Nhân viên:</span>
+            <span>${order.staffName || ''}</span>
+          </div>
+
+          <div class="row">
+            <span>Thời gian order:</span>
+            <span>
+              ${formatDateTime(
+                order.metadata?.orderCreatedAt
+              )}
+            </span>
+          </div>
+
           ${
             paymentMethod
-              ? `<div class="row"><span>Thanh toán:</span><span>${paymentMethod}</span></div>`
+              ? `
+                <div class="row">
+                  <span>Thanh toán:</span>
+                  <span>${paymentMethod}</span>
+                </div>
+              `
               : ''
           }
 
@@ -346,15 +821,38 @@ export default function History() {
           ${order.items
             .map(
               (item) => `
-            <div class="item">
-              <div class="item-name">${item.quantity}x ${item.name}</div>
-              ${item.note ? `<div class="item-note">Ghi chú: ${item.note}</div>` : ''}
-              <div class="row">
-                <span>${Number(item.price).toLocaleString('vi-VN')}đ</span>
-                <span>${(item.quantity * item.price).toLocaleString('vi-VN')}đ</span>
-              </div>
-            </div>
-          `
+                <div class="item">
+
+                  <div class="item-name">
+                    ${item.quantity}x ${item.name}
+                  </div>
+
+                  ${
+                    item.note
+                      ? `
+                        <div class="item-note">
+                          Ghi chú: ${item.note}
+                        </div>
+                      `
+                      : ''
+                  }
+
+                  <div class="row">
+                    <span>
+                      ${Number(item.price).toLocaleString(
+                        'vi-VN'
+                      )}đ
+                    </span>
+
+                    <span>
+                      ${(
+                        item.quantity * item.price
+                      ).toLocaleString('vi-VN')}đ
+                    </span>
+                  </div>
+
+                </div>
+              `
             )
             .join('')}
 
@@ -362,18 +860,31 @@ export default function History() {
 
           <div class="row total">
             <span>TỔNG</span>
-            <span>${order.totalPrice.toLocaleString('vi-VN')}đ</span>
+
+            <span>
+              ${order.totalPrice.toLocaleString(
+                'vi-VN'
+              )}đ
+            </span>
           </div>
 
           ${qrHtml}
 
           <div class="divider"></div>
-          <div class="footer">Cảm ơn quý khách ❤️</div>
+
+          <div class="footer">
+            Cảm ơn quý khách ❤️
+          </div>
+
         </body>
       </html>
     `;
 
-    const printWindow = window.open('', '_blank', 'width=420,height=720');
+    const printWindow = window.open(
+      '',
+      '_blank',
+      'width=420,height=720'
+    );
 
     if (!printWindow) {
       alert('Trình duyệt đang chặn popup!');
@@ -388,6 +899,7 @@ export default function History() {
       setTimeout(() => {
         printWindow.focus();
         printWindow.print();
+
         setTimeout(() => {
           printWindow.close();
         }, 500);
@@ -395,22 +907,11 @@ export default function History() {
     };
   };
 
-  const renderOrderLabel = (order: Order) => {
-    if (order.type === 'Giao hàng') {
-      return `${order.deliveryProvider || 'Giao hàng'}${
-        order.orderCode ? ` - ${order.orderCode}` : ''
-      }`;
-    }
-
-    return order.tableId || order.type;
-  };
-
-  const getPaymentBadgeClass = (paymentMethod?: string) => {
-    if (paymentMethod === 'Tiền mặt') return 'bg-blue-100 text-blue-700';
-    if (paymentMethod === 'Chuyển khoản') return 'bg-lime-100 text-lime-700';
-    if (paymentMethod === 'Ví Momo') return 'bg-pink-100 text-pink-700';
-    return 'bg-orange-100 text-orange-700';
-  };
+  /**
+   * ==============================
+   * CLASS BUTTON
+   * ==============================
+   */
 
   const rangeButtonClass = (mode: FilterMode) =>
     `px-4 py-2 rounded-lg text-sm font-medium ${
@@ -419,26 +920,50 @@ export default function History() {
         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
     }`;
 
-  const orderTypeButtonClass = (type: OrderTypeFilter) =>
+  const orderTypeButtonClass = (
+    type: OrderTypeFilter
+  ) =>
     `px-4 py-2 rounded-lg text-sm font-medium ${
       orderTypeFilter === type
         ? 'bg-lime-600 text-white'
         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
     }`;
 
+  /**
+   * ==============================
+   * RENDER
+   * ==============================
+   */
+
   return (
     <div className="h-full bg-gray-50 flex flex-col overflow-hidden">
+
+      {/* ==========================================
+          HEADER
+      ========================================== */}
+
       <div className="bg-white p-4 lg:p-6 border-b border-gray-200 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 shrink-0">
+
         <div>
-          <h1 className="text-xl lg:text-2xl font-bold text-gray-800">Lịch sử bán hàng</h1>
+          <h1 className="text-xl lg:text-2xl font-bold text-gray-800">
+            Lịch sử bán hàng
+          </h1>
+
           <p className="text-gray-500 text-sm mt-1">
             Quản lý các đơn hàng đã thanh toán và đơn đã xóa
           </p>
         </div>
 
         <div className="flex flex-col gap-3 w-full xl:w-auto">
+
+          {/* ==========================================
+              TAB + SEARCH
+          ========================================== */}
+
           <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
+
             <div className="flex bg-gray-100 p-1 rounded-xl w-full sm:w-auto">
+
               <button
                 onClick={() => setActiveTab('orders')}
                 className={`flex-1 sm:flex-none px-4 lg:px-5 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -449,6 +974,7 @@ export default function History() {
               >
                 Đơn hàng
               </button>
+
               <button
                 onClick={() => setActiveTab('deleted')}
                 className={`flex-1 sm:flex-none px-4 lg:px-5 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -459,383 +985,930 @@ export default function History() {
               >
                 Đơn đã xóa
               </button>
+
             </div>
 
             <div className="relative w-full xl:w-80">
+
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+
               <input
                 type="text"
-                placeholder="Tìm mã đơn, mã vận đơn, bàn, nhân viên, món ăn..."
+                placeholder="Tìm mã đơn, bàn, nhân viên, món ăn..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-lime-500 focus:ring-2 focus:ring-lime-100"
+                onChange={(e) =>
+                  setSearchQuery(e.target.value)
+                }
+                className="w-full pl-9 pr-10 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-lime-500 focus:ring-2 focus:ring-lime-100"
               />
+
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+                  title="Xóa tìm kiếm"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+
               <p className="mt-1 text-xs text-gray-400">
-                Tìm theo: mã đơn (ORD-...), mã vận đơn (Grab-705,...), bàn (Bàn 1...), nhân viên (Quản lý,...), món ăn (Phở chay, Cơm chay,...)
+                Tìm theo: mã đơn, mã vận đơn, bàn, nhân viên,
+                món ăn
               </p>
+
             </div>
+
           </div>
 
+          {/* ==========================================
+              CHẾ ĐỘ NGÀY / THÁNG / NĂM
+          ========================================== */}
+
           <div className="flex flex-wrap gap-2 items-center">
-            <button onClick={() => setQuickHistoryRange('day')} className={rangeButtonClass('day')}>
+
+            <button
+              onClick={() =>
+                setQuickHistoryRange('day')
+              }
+              className={rangeButtonClass('day')}
+            >
               Ngày
             </button>
+
             <button
-              onClick={() => setQuickHistoryRange('month')}
+              onClick={() =>
+                setQuickHistoryRange('month')
+              }
               className={rangeButtonClass('month')}
             >
               Tháng
             </button>
-            <button onClick={() => setQuickHistoryRange('year')} className={rangeButtonClass('year')}>
+
+            <button
+              onClick={() =>
+                setQuickHistoryRange('year')
+              }
+              className={rangeButtonClass('year')}
+            >
               Năm
             </button>
+
           </div>
 
+          {/* ==========================================
+              LOẠI ĐƠN
+          ========================================== */}
+
           <div className="flex flex-wrap gap-2 items-center">
-            <button onClick={() => setOrderTypeFilter('all')} className={orderTypeButtonClass('all')}>
+
+            <button
+              onClick={() => setOrderTypeFilter('all')}
+              className={orderTypeButtonClass('all')}
+            >
               Tất cả
             </button>
+
             <button
-              onClick={() => setOrderTypeFilter('Tại bàn')}
+              onClick={() =>
+                setOrderTypeFilter('Tại bàn')
+              }
               className={orderTypeButtonClass('Tại bàn')}
             >
               Tại bàn
             </button>
+
             <button
-              onClick={() => setOrderTypeFilter('Mang về')}
+              onClick={() =>
+                setOrderTypeFilter('Mang về')
+              }
               className={orderTypeButtonClass('Mang về')}
             >
               Mang về
             </button>
+
             <button
-              onClick={() => setOrderTypeFilter('Giao hàng')}
+              onClick={() =>
+                setOrderTypeFilter('Giao hàng')
+              }
               className={orderTypeButtonClass('Giao hàng')}
             >
               Giao hàng
             </button>
+
           </div>
+
+          {/* ==========================================
+              CALENDAR
+          ========================================== */}
 
           {filterMode === 'day' ? (
             <div className="relative w-full xl:w-auto">
+
               <button
                 type="button"
                 onClick={() => {
-                  const picked = parseLocalDateInput(singleDate);
-                  setCalendarMonth(new Date(picked.getFullYear(), picked.getMonth(), 1));
-                  setCalendarOpen((open) => !open);
+                  const picked =
+                    parseLocalDateInput(singleDate);
+
+                  setCalendarMonth(
+                    new Date(
+                      picked.getFullYear(),
+                      picked.getMonth(),
+                      1
+                    )
+                  );
+
+                  setCalendarOpen(
+                    (open) => !open
+                  );
                 }}
                 className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2.5 shadow-sm w-full xl:w-80 text-left hover:border-lime-400 transition-colors"
               >
                 <CalendarDays className="w-4 h-4 text-gray-400 shrink-0" />
-                <span className="text-sm text-gray-700">{parseLocalDateInput(singleDate).toLocaleDateString('vi-VN')}</span>
+
+                <span className="text-sm text-gray-700">
+                  {parseLocalDateInput(
+                    singleDate
+                  ).toLocaleDateString('vi-VN')}
+                </span>
               </button>
 
               {calendarOpen && (
                 <div className="absolute right-0 top-full mt-2 z-50 w-[320px] bg-white border border-gray-200 rounded-2xl shadow-xl p-4">
+
                   <div className="flex items-center justify-between mb-3">
+
                     <button
                       type="button"
-                      onClick={() => moveCalendarMonth(-1)}
+                      onClick={() =>
+                        moveCalendarMonth(-1)
+                      }
                       className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"
-                      aria-label="Tháng trước"
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </button>
+
                     <div className="font-semibold text-gray-800">
-                      {calendarMonth.toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' })}
+                      {calendarMonth.toLocaleDateString(
+                        'vi-VN',
+                        {
+                          month: 'long',
+                          year: 'numeric',
+                        }
+                      )}
                     </div>
+
                     <button
                       type="button"
-                      onClick={() => moveCalendarMonth(1)}
+                      onClick={() =>
+                        moveCalendarMonth(1)
+                      }
                       className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"
-                      aria-label="Tháng sau"
                     >
                       <ChevronRight className="w-4 h-4" />
                     </button>
+
                   </div>
 
                   <div className="grid grid-cols-7 mb-2">
-                    {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map((day) => (
-                      <div key={day} className="text-center text-xs font-semibold text-gray-400 py-1">{day}</div>
+                    {[
+                      'CN',
+                      'T2',
+                      'T3',
+                      'T4',
+                      'T5',
+                      'T6',
+                      'T7',
+                    ].map((day) => (
+                      <div
+                        key={day}
+                        className="text-center text-xs font-semibold text-gray-400 py-1"
+                      >
+                        {day}
+                      </div>
                     ))}
                   </div>
 
                   <div className="grid grid-cols-7 gap-y-1">
-                    {calendarCells.map(({ date, inCurrentMonth, hasData }) => {
-                      const selected = sameLocalDay(date, parseLocalDateInput(singleDate));
-                      const today = sameLocalDay(date, new Date());
-                      return (
-                        <button
-                          type="button"
-                          key={localDateKey(date)}
-                          onClick={() => selectCalendarDate(date)}
-                          className={"relative h-9 flex items-center justify-center rounded-lg text-sm transition-colors " +
-                            (selected
-                              ? 'bg-lime-600 text-white font-semibold'
-                              : today
+
+                    {calendarCells.map(
+                      ({
+                        date,
+                        inCurrentMonth,
+                        hasData,
+                      }) => {
+
+                        const selected =
+                          sameLocalDay(
+                            date,
+                            parseLocalDateInput(
+                              singleDate
+                            )
+                          );
+
+                        const today =
+                          sameLocalDay(
+                            date,
+                            new Date()
+                          );
+
+                        return (
+                          <button
+                            type="button"
+                            key={localDateKey(date)}
+                            onClick={() =>
+                              selectCalendarDate(date)
+                            }
+                            className={
+                              'relative h-9 flex items-center justify-center rounded-lg text-sm transition-colors ' +
+                              (selected
+                                ? 'bg-lime-600 text-white font-semibold'
+                                : today
                                 ? 'ring-1 ring-lime-500 text-lime-700 font-semibold'
                                 : inCurrentMonth
-                                  ? 'text-gray-700 hover:bg-lime-50'
-                                  : 'text-gray-300 hover:bg-gray-50')}
-                        >
-                          {date.getDate()}
-                          {hasData && !selected && (
-                            <span className="absolute bottom-1 w-1.5 h-1.5 rounded-full bg-lime-500" />
-                          )}
-                        </button>
-                      );
-                    })}
+                                ? 'text-gray-700 hover:bg-lime-50'
+                                : 'text-gray-300 hover:bg-gray-50')
+                            }
+                          >
+                            {date.getDate()}
+
+                            {hasData &&
+                              !selected && (
+                                <span className="absolute bottom-1 w-1.5 h-1.5 rounded-full bg-lime-500" />
+                              )}
+                          </button>
+                        );
+                      }
+                    )}
+
                   </div>
 
                   <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
+
                     <span className="flex items-center gap-1.5 text-gray-500">
-                      <span className="w-2 h-2 rounded-full bg-lime-500" /> Có dữ liệu
+                      <span className="w-2 h-2 rounded-full bg-lime-500" />
+                      Có dữ liệu
                     </span>
+
                     <button
                       type="button"
-                      onClick={() => selectCalendarDate(new Date())}
+                      onClick={() =>
+                        selectCalendarDate(new Date())
+                      }
                       className="text-lime-700 font-medium hover:underline"
                     >
                       Hôm nay
                     </button>
+
                   </div>
+
                 </div>
               )}
+
             </div>
           ) : (
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm w-full xl:w-auto">
+
               <div className="flex items-center gap-2 min-w-0">
+
                 <CalendarDays className="w-4 h-4 text-gray-400 shrink-0" />
+
                 <input
                   type="date"
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  onChange={(e) =>
+                    setStartDate(e.target.value)
+                  }
                   className="text-sm border-none focus:ring-0 p-0 outline-none cursor-pointer w-full bg-transparent"
                 />
+
               </div>
 
-              <span className="hidden sm:block text-gray-300">|</span>
+              <span className="hidden sm:block text-gray-300">
+                |
+              </span>
 
               <div className="flex items-center gap-2 min-w-0">
+
                 <input
                   type="date"
                   value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                  onChange={(e) =>
+                    setEndDate(e.target.value)
+                  }
                   className="text-sm border-none focus:ring-0 p-0 outline-none cursor-pointer w-full bg-transparent"
                 />
+
               </div>
+
             </div>
           )}
+
         </div>
+
       </div>
 
-      <div className="flex-1 overflow-auto p-4 lg:p-6">
-        {filteredOrders.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-gray-200 p-10 lg:p-16 text-center shadow-sm">
-            <Receipt className="w-14 h-14 mx-auto text-gray-300 mb-4" />
-            <h3 className="text-lg font-semibold text-gray-700">
-              {activeTab === 'orders' ? 'Không có đơn phù hợp' : 'Chưa có đơn đã xóa'}
-            </h3>
-            <p className="text-gray-500 text-sm mt-1">
-              Dữ liệu sẽ hiển thị tại đây khi có đơn hàng phù hợp.
-            </p>
+      {/* ==========================================
+          THỐNG KÊ KHI TÌM MÓN
+      ========================================== */}
+
+      {itemSearchSummary.isItemSearch && (
+        <div className="px-4 lg:px-6 pt-4 shrink-0">
+
+          <div className="bg-lime-50 border border-lime-200 rounded-2xl p-4">
+
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+
+              <div>
+
+                <div className="flex items-center gap-2">
+
+                  <Search className="w-5 h-5 text-lime-700" />
+
+                  <span className="font-semibold text-lime-800">
+                    Kết quả tìm món
+                  </span>
+
+                </div>
+
+                <p className="text-sm text-lime-700 mt-1">
+
+                  Đang lọc:
+                  <strong className="ml-1">
+                    "{searchQuery.trim()}"
+                  </strong>
+
+                </p>
+
+                <p className="text-xs text-lime-600 mt-1">
+                  Các bill bên dưới chỉ hiển thị món phù hợp
+                  với từ khóa tìm kiếm.
+                </p>
+
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+
+                <div className="bg-white rounded-xl border border-lime-200 px-5 py-3 min-w-[150px]">
+
+                  <p className="text-xs text-gray-500">
+                    Tổng số lượng
+                  </p>
+
+                  <p className="text-xl font-bold text-gray-800 mt-1">
+                    {itemSearchSummary.totalQuantity.toLocaleString(
+                      'vi-VN'
+                    )}
+                  </p>
+
+                </div>
+
+                <div className="bg-white rounded-xl border border-lime-200 px-5 py-3 min-w-[180px]">
+
+                  <p className="text-xs text-gray-500">
+                    Tổng tiền món tìm kiếm
+                  </p>
+
+                  <p className="text-xl font-bold text-lime-700 mt-1">
+                    {itemSearchSummary.totalAmount.toLocaleString(
+                      'vi-VN'
+                    )}
+                    đ
+                  </p>
+
+                </div>
+
+              </div>
+
+            </div>
+
           </div>
+
+        </div>
+      )}
+
+      {/* ==========================================
+          DANH SÁCH BILL
+      ========================================== */}
+
+      <div className="flex-1 overflow-auto p-4 lg:p-6">
+
+        {filteredOrders.length === 0 ? (
+
+          <div className="bg-white rounded-2xl border border-gray-200 p-10 lg:p-16 text-center shadow-sm">
+
+            <Receipt className="w-14 h-14 mx-auto text-gray-300 mb-4" />
+
+            <h3 className="text-lg font-semibold text-gray-700">
+              {activeTab === 'orders'
+                ? 'Không có đơn phù hợp'
+                : 'Chưa có đơn đã xóa'}
+            </h3>
+
+            <p className="text-gray-500 text-sm mt-1">
+              Dữ liệu sẽ hiển thị tại đây khi có đơn hàng
+              phù hợp.
+            </p>
+
+          </div>
+
         ) : (
+
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden min-w-[1060px]">
+
             <table className="w-full">
+
               <thead className="bg-gray-50 border-b border-gray-200">
+
                 <tr className="text-left text-sm text-gray-500">
-                  <th className="px-4 py-4 font-semibold w-16 text-center">STT</th>
-                  <th className="px-4 py-4 font-semibold">Mã đơn</th>
-                  <th className="px-4 py-4 font-semibold">Thời gian thanh toán</th>
-                  <th className="px-4 py-4 font-semibold">Loại / Bàn</th>
-                  <th className="px-4 py-4 font-semibold">Nhân viên</th>
-                  <th className="px-4 py-4 font-semibold">Phương thức</th>
-                  <th className="px-4 py-4 font-semibold">Tổng tiền</th>
-                  <th className="px-4 py-4 font-semibold text-center">Thao tác</th>
+
+                  <th className="px-4 py-4 font-semibold w-16 text-center">
+                    STT
+                  </th>
+
+                  <th className="px-4 py-4 font-semibold">
+                    Mã đơn
+                  </th>
+
+                  <th className="px-4 py-4 font-semibold">
+                    Thời gian thanh toán
+                  </th>
+
+                  <th className="px-4 py-4 font-semibold">
+                    Loại / Bàn
+                  </th>
+
+                  <th className="px-4 py-4 font-semibold">
+                    Món đang tìm
+                  </th>
+
+                  <th className="px-4 py-4 font-semibold">
+                    Nhân viên
+                  </th>
+
+                  <th className="px-4 py-4 font-semibold">
+                    Phương thức
+                  </th>
+
+                  <th className="px-4 py-4 font-semibold">
+                    Tổng tiền
+                  </th>
+
+                  <th className="px-4 py-4 font-semibold text-center">
+                    Thao tác
+                  </th>
+
                 </tr>
+
               </thead>
 
               <tbody>
-                {filteredOrders.map((order, index) => (
-                  <tr
-                    key={`${order.id}-${order.timestamp}`}
-                    className="border-b border-gray-100 last:border-b-0"
-                  >
-                    <td className="px-4 py-5 text-center text-gray-600 font-medium">{index + 1}</td>
-                    <td className="px-4 py-5 font-bold text-gray-800">#{order.id}</td>
 
-                    <td className="px-4 py-5 text-gray-700">
-                      <div className="flex items-center gap-2">
-                        <CalendarDays className="w-4 h-4 text-gray-400 shrink-0" />
-                        <span>{formatDateTime(order.metadata?.paidAt || order.timestamp)}</span>
-                      </div>
-                    </td>
+                {filteredOrders.map(
+                  (order, index) => {
 
-                    <td className="px-4 py-5 text-gray-700">{renderOrderLabel(order)}</td>
+                    const isItemSearch =
+                      itemSearchSummary.isItemSearch;
 
-                    <td className="px-4 py-5 text-gray-700">{order.staffName}</td>
-
-                    <td className="px-4 py-5">
-                      <span
-                        className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${getPaymentBadgeClass(
-                          order.paymentMethod
-                        )}`}
+                    return (
+                      <tr
+                        key={`${order.id}-${order.timestamp}`}
+                        className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50"
                       >
-                        {order.paymentMethod || 'Chưa có'}
-                      </span>
-                    </td>
 
-                    <td className="px-4 py-5 font-bold text-lime-600 text-lg">
-                      {order.totalPrice.toLocaleString('vi-VN')}đ
-                    </td>
+                        <td className="px-4 py-5 text-center text-gray-600 font-medium">
+                          {index + 1}
+                        </td>
 
-                    <td className="px-4 py-5">
-                      <div className="flex items-center justify-center gap-4">
-                        <button
-                          onClick={() => setSelectedOrder(order)}
-                          className="text-gray-500 hover:text-lime-700 transition-colors"
-                          title="Xem hóa đơn"
-                        >
-                          <FileText className="w-5 h-5" />
-                        </button>
+                        <td className="px-4 py-5 font-bold text-gray-800">
+                          #{order.id}
+                        </td>
 
-                        <button
-                          onClick={() => printHistoryOrder(order)}
-                          className="text-gray-500 hover:text-blue-700 transition-colors"
-                          title="In hóa đơn"
-                        >
-                          <Printer className="w-5 h-5" />
-                        </button>
+                        <td className="px-4 py-5 text-gray-700">
 
-                        {activeTab === 'orders' ? (
-                          <button
-                            onClick={() => void deleteOrder(order.id)}
-                            className="text-gray-500 hover:text-red-600 transition-colors"
-                            title="Xóa đơn"
+                          <div className="flex items-center gap-2">
+
+                            <CalendarDays className="w-4 h-4 text-gray-400 shrink-0" />
+
+                            <span>
+                              {formatDateTime(
+                                order.metadata?.paidAt ||
+                                  order.timestamp
+                              )}
+                            </span>
+
+                          </div>
+
+                        </td>
+
+                        <td className="px-4 py-5 text-gray-700 font-medium">
+                          {renderOrderLabel(order)}
+                        </td>
+
+                        {/* ====================================
+                            MÓN ĐANG TÌM
+                        ==================================== */}
+
+                        <td className="px-4 py-5">
+
+                          {isItemSearch ? (
+
+                            <div className="space-y-1.5">
+
+                              {order.items.map(
+                                (item) => (
+                                  <div
+                                    key={
+                                      item.cartItemId
+                                    }
+                                    className="flex items-center gap-2"
+                                  >
+
+                                    <span className="font-semibold text-gray-800">
+                                      {item.name}
+                                    </span>
+
+                                    <span className="text-sm text-gray-500">
+                                      × {item.quantity}
+                                    </span>
+
+                                  </div>
+                                )
+                              )}
+
+                            </div>
+
+                          ) : (
+
+                            <span className="text-gray-400 text-sm">
+                              —
+                            </span>
+
+                          )}
+
+                        </td>
+
+                        <td className="px-4 py-5 text-gray-700">
+                          {order.staffName}
+                        </td>
+
+                        <td className="px-4 py-5">
+
+                          <span
+                            className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${getPaymentBadgeClass(
+                              order.paymentMethod
+                            )}`}
                           >
-                            <Trash2 className="w-5 h-5" />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => void restoreOrder(order.id)}
-                            className="text-gray-500 hover:text-lime-600 transition-colors"
-                            title="Khôi phục đơn"
-                          >
-                            <RotateCcw className="w-5 h-5" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                            {order.paymentMethod ||
+                              'Chưa có'}
+                          </span>
+
+                        </td>
+
+                        {/* ====================================
+                            TỔNG TIỀN
+
+                            Nếu đang tìm món:
+                            đây chính là tổng tiền của
+                            những món được tìm.
+                        ==================================== */}
+
+                        <td className="px-4 py-5 font-bold text-lime-600 text-lg">
+
+                          {order.totalPrice.toLocaleString(
+                            'vi-VN'
+                          )}
+                          đ
+
+                        </td>
+
+                        <td className="px-4 py-5">
+
+                          <div className="flex items-center justify-center gap-4">
+
+                            <button
+                              onClick={() =>
+                                setSelectedOrder(
+                                  order
+                                )
+                              }
+                              className="text-gray-500 hover:text-lime-700 transition-colors"
+                              title={
+                                isItemSearch
+                                  ? 'Xem kết quả món đã lọc'
+                                  : 'Xem hóa đơn'
+                              }
+                            >
+                              <FileText className="w-5 h-5" />
+                            </button>
+
+                            <button
+                              onClick={() =>
+                                printHistoryOrder(
+                                  order
+                                )
+                              }
+                              className="text-gray-500 hover:text-blue-700 transition-colors"
+                              title={
+                                isItemSearch
+                                  ? 'In món đang tìm'
+                                  : 'In hóa đơn'
+                              }
+                            >
+                              <Printer className="w-5 h-5" />
+                            </button>
+
+                            {activeTab ===
+                            'orders' ? (
+
+                              <button
+                                onClick={() =>
+                                  void deleteOrder(
+                                    order.id
+                                  )
+                                }
+                                className="text-gray-500 hover:text-red-600 transition-colors"
+                                title="Xóa đơn"
+                              >
+                                <Trash2 className="w-5 h-5" />
+                              </button>
+
+                            ) : (
+
+                              <button
+                                onClick={() =>
+                                  void restoreOrder(
+                                    order.id
+                                  )
+                                }
+                                className="text-gray-500 hover:text-lime-600 transition-colors"
+                                title="Khôi phục đơn"
+                              >
+                                <RotateCcw className="w-5 h-5" />
+                              </button>
+
+                            )}
+
+                          </div>
+
+                        </td>
+
+                      </tr>
+                    );
+                  }
+                )}
+
               </tbody>
+
             </table>
+
           </div>
+
         )}
+
       </div>
 
+      {/* ==========================================
+          CHI TIẾT BILL
+      ========================================== */}
+
       {selectedOrder && (
+
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+
           <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
+
             <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between shrink-0">
+
               <div>
-                <h2 className="text-xl font-bold text-gray-800">Chi tiết hóa đơn</h2>
-                <p className="text-sm text-gray-500 mt-1">#{selectedOrder.id}</p>
+
+                <h2 className="text-xl font-bold text-gray-800">
+                  Chi tiết hóa đơn
+                </h2>
+
+                <p className="text-sm text-gray-500 mt-1">
+                  #{selectedOrder.id}
+                </p>
+
+                {itemSearchSummary.isItemSearch && (
+                  <p className="text-xs text-lime-700 mt-1 font-medium">
+                    Đang hiển thị kết quả lọc món:
+                    "{searchQuery.trim()}"
+                  </p>
+                )}
+
               </div>
 
               <button
-                onClick={() => setSelectedOrder(null)}
+                onClick={() =>
+                  setSelectedOrder(null)
+                }
                 className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
               >
                 <X className="w-5 h-5" />
               </button>
+
             </div>
 
             <div className="p-5 overflow-y-auto bg-gray-50">
+
               <div className="bg-white rounded-2xl border border-gray-200 p-5">
+
                 <div className="grid grid-cols-2 gap-4 text-sm mb-5">
+
                   <div>
-                    <p className="text-gray-500">Loại / Bàn</p>
+                    <p className="text-gray-500">
+                      Loại / Bàn
+                    </p>
+
                     <p className="font-medium text-gray-800 mt-1">
-                      {renderOrderLabel(selectedOrder)}
+                      {renderOrderLabel(
+                        selectedOrder
+                      )}
                     </p>
                   </div>
+
                   <div>
-                    <p className="text-gray-500">Thời gian order</p>
+                    <p className="text-gray-500">
+                      Thời gian order
+                    </p>
+
                     <p className="font-medium text-gray-800 mt-1">
-                      {formatDateTime(selectedOrder.metadata?.orderCreatedAt)}
+                      {formatDateTime(
+                        selectedOrder.metadata
+                          ?.orderCreatedAt
+                      )}
                     </p>
                   </div>
+
                   <div>
-                    <p className="text-gray-500">Nhân viên</p>
-                    <p className="font-medium text-gray-800 mt-1">{selectedOrder.staffName}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Thanh toán</p>
+                    <p className="text-gray-500">
+                      Nhân viên
+                    </p>
+
                     <p className="font-medium text-gray-800 mt-1">
-                      {selectedOrder.paymentMethod || 'Chưa có'}
+                      {selectedOrder.staffName}
                     </p>
                   </div>
+
+                  <div>
+                    <p className="text-gray-500">
+                      Thanh toán
+                    </p>
+
+                    <p className="font-medium text-gray-800 mt-1">
+                      {selectedOrder.paymentMethod ||
+                        'Chưa có'}
+                    </p>
+                  </div>
+
                 </div>
 
+                {itemSearchSummary.isItemSearch && (
+                  <div className="mb-4 bg-lime-50 border border-lime-200 rounded-xl p-3">
+
+                    <p className="text-xs text-lime-700">
+                      BILL SAU KHI LỌC MÓN
+                    </p>
+
+                    <p className="text-sm text-lime-800 font-semibold mt-1">
+                      Chỉ hiển thị món phù hợp với:
+                      "{searchQuery.trim()}"
+                    </p>
+
+                  </div>
+                )}
+
                 <div className="border rounded-xl overflow-hidden">
+
                   <div className="grid grid-cols-12 gap-2 px-4 py-3 bg-gray-50 border-b text-xs font-semibold text-gray-500 uppercase">
-                    <div className="col-span-6">Tên món</div>
-                    <div className="col-span-2 text-center">SL</div>
-                    <div className="col-span-2 text-right">Đơn giá</div>
-                    <div className="col-span-2 text-right">T.Tiền</div>
+
+                    <div className="col-span-6">
+                      Tên món
+                    </div>
+
+                    <div className="col-span-2 text-center">
+                      SL
+                    </div>
+
+                    <div className="col-span-2 text-right">
+                      Đơn giá
+                    </div>
+
+                    <div className="col-span-2 text-right">
+                      T.Tiền
+                    </div>
+
                   </div>
 
-                  {selectedOrder.items.map((item) => (
-                    <div
-                      key={item.cartItemId}
-                      className="grid grid-cols-12 gap-2 px-4 py-3 border-b last:border-b-0 text-sm"
-                    >
-                      <div className="col-span-6">
-                        <p className="font-medium text-gray-800">{item.name}</p>
-                        {item.note ? (
-                          <p className="text-xs text-gray-500 italic mt-1">Ghi chú: {item.note}</p>
-                        ) : null}
+                  {selectedOrder.items.map(
+                    (item) => (
+
+                      <div
+                        key={item.cartItemId}
+                        className="grid grid-cols-12 gap-2 px-4 py-3 border-b last:border-b-0 text-sm"
+                      >
+
+                        <div className="col-span-6">
+
+                          <p className="font-medium text-gray-800">
+                            {item.name}
+                          </p>
+
+                          {item.note ? (
+                            <p className="text-xs text-gray-500 italic mt-1">
+                              Ghi chú: {item.note}
+                            </p>
+                          ) : null}
+
+                        </div>
+
+                        <div className="col-span-2 text-center text-gray-700">
+                          {item.quantity}
+                        </div>
+
+                        <div className="col-span-2 text-right text-gray-700">
+                          {Number(
+                            item.price
+                          ).toLocaleString(
+                            'vi-VN'
+                          )}
+                          đ
+                        </div>
+
+                        <div className="col-span-2 text-right font-semibold text-gray-800">
+                          {(
+                            Number(item.price) *
+                            Number(item.quantity)
+                          ).toLocaleString(
+                            'vi-VN'
+                          )}
+                          đ
+                        </div>
+
                       </div>
-                      <div className="col-span-2 text-center text-gray-700">{item.quantity}</div>
-                      <div className="col-span-2 text-right text-gray-700">
-                        {item.price.toLocaleString('vi-VN')}đ
-                      </div>
-                      <div className="col-span-2 text-right font-semibold text-gray-800">
-                        {(item.price * item.quantity).toLocaleString('vi-VN')}đ
-                      </div>
-                    </div>
-                  ))}
+
+                    )
+                  )}
+
                 </div>
 
                 <div className="mt-5 flex justify-between items-center border-t pt-4">
-                  <span className="text-lg font-bold text-gray-800">Tổng cộng</span>
-                  <span className="text-2xl font-bold text-lime-600">
-                    {selectedOrder.totalPrice.toLocaleString('vi-VN')}đ
+
+                  <span className="text-lg font-bold text-gray-800">
+                    {itemSearchSummary.isItemSearch
+                      ? 'Tổng món tìm kiếm'
+                      : 'Tổng cộng'}
                   </span>
+
+                  <span className="text-2xl font-bold text-lime-600">
+                    {selectedOrder.totalPrice.toLocaleString(
+                      'vi-VN'
+                    )}
+                    đ
+                  </span>
+
                 </div>
+
               </div>
+
             </div>
 
             <div className="px-5 py-4 border-t border-gray-200 bg-white flex justify-end gap-3 shrink-0">
+
               <button
-                onClick={() => printHistoryOrder(selectedOrder)}
+                onClick={() =>
+                  printHistoryOrder(
+                    selectedOrder
+                  )
+                }
                 className="px-4 py-2.5 rounded-xl bg-lime-600 text-white font-medium hover:bg-lime-700 transition-colors flex items-center gap-2"
               >
                 <Printer className="w-4 h-4" />
-                In hóa đơn
+                {itemSearchSummary.isItemSearch
+                  ? 'In món đang lọc'
+                  : 'In hóa đơn'}
               </button>
+
               <button
-                onClick={() => setSelectedOrder(null)}
+                onClick={() =>
+                  setSelectedOrder(null)
+                }
                 className="px-4 py-2.5 rounded-xl bg-gray-100 text-gray-700 font-medium hover:bg-gray-200 transition-colors"
               >
                 Đóng
               </button>
+
             </div>
+
           </div>
+
         </div>
+
       )}
+
     </div>
   );
-};
+}
